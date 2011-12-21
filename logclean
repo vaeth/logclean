@@ -1,0 +1,631 @@
+#! /usr/bin/perl
+use strict;
+use integer;
+use Pod::Usage;
+use Getopt::Long;
+
+sub message { print STDERR "logclean: $_[0]\n" }
+sub warning { message "warning: $_[0]" }
+sub fatal { message "$_[0] - Stopped"; exit 2 }
+
+=head1 NAME
+
+logclean - Remove unneeded portage log- and tempfiles
+
+=head1 SYNOPSIS
+
+B<logclean> [options] B<all>|B<log>|B<elog>|B<notices>|B<builds>
+
+To get an extended help, type B<logclean --man> or B<logclean -?>
+
+=head1 DESCRIPTION
+
+This script can remove all logfiles of portage which do not correspond to
+currently installed packages. It can also remove the tempfiles of portage.
+What should be removed must be specified in the argument:
+
+=over 8
+
+=item B<logclean> [options] B<all>
+
+Do all of the following cleanups in this order
+(do not use B<all> if portage might be running, e.g. in a cron job):
+
+=item B<logclean> [options] B<log[s]>
+
+Remove unneded files in ${PORT_LOGDIR} (defaults to /var/log/portage).
+A logfile counts as unneeded if no corresponding package seems to be
+installed, if there appears to be a newer installation logfile,
+or if it does not appear to be an installation logfile at all.
+Moreover, all "needed" logfiles are compressed with xz/lzma/bzip2/gzip.
+
+=item B<logclean> [options] B<elog[s]>
+
+Remove unneded files in ${PORTAGE_LOGDIR}/elog
+
+A file here counts as unneeded if no corresponding package seems to be
+installed, if there appears to be a newer logfile, or if the file appears
+to contain only "standard" messages.
+
+=item B<logclean> [options] B<not[ic]es>
+
+Remove unneded files in ${PORT_ENOTICE_DIR} (usually /var/log/notices).
+
+The notices stem from an unofficial extension of the portage logging facility
+(before elog was officially supported by portage) which was introduced in
+connection with the "enotice" script.
+
+A file here counts as unneeded if no corresponding package seems to be
+installed, if there appears to be a newer logfile, or if the file appears
+to contain only "standard" messages.
+
+=item B<logclean> [options] B<builds>
+
+Remove all unneded data in ${PORT_TMPDIR}/portage (usually /var/tmp/portage).
+
+Any directory here (with all its contents) except for F<homedir> is
+considered as unneeded (unless its mtime is not older than specified
+by the -o option).
+
+Do not use B<builds> if portage might be running (e.g. in a cron job).
+
+
+=back
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<--help> or B<-h>
+
+Display brief help
+
+=item B<--man> or B<-?>
+
+Display extended help as a manpage
+
+=item B<--oldformat> or B<-O>
+
+Assume that the logfiles are in the old format (<portage-2.1.1)
+
+=item B<--pretend> or B<--show> or B<-p> or B<-s>
+
+Show only what would be removed, do not remove anything
+
+=item B<--root=>I<rootdir> or B<-r> I<rootdir>
+
+Consider I<rootdir> instead of '/' as the root of all directories
+
+=item B<--older=>I<h> or B<-o> I<h>
+
+Delete only files/dirs if they are older than I<h> hours.
+This is useful if you run this script e.g. in a cron job and a
+simultaneous "emerge" happens: You usually do not want to remove a
+currently created logfile or a build directory which portage uses
+in this moment.
+
+=item B<--newer=>I<h> or B<-n> I<h>
+
+Skip scanning of some files which are older than I<h> hours,
+i.e. require that scanned files are at leat I<h> hours new.
+The purpose is to speed up the processing of the script, considering
+only new changes, at the small risk of possibly not deleting all
+unneeded files.
+
+This is essentially only useful in connection with <portage-2.1.1, namely
+if an emerge just failed and you want to erase the latest "failed" log(s)
+to avoid that the output of the next emerge is appended to them.
+
+=item B<--xz> or B<-x>
+
+Use xz for compression (default if available).
+You might want to set something like XZ_OPT="--extreme -5" in the environment
+
+=item B<--lzma> or B<-l>
+
+Use lzma for compression (default if the above are not available)
+
+=item B<--bzip2> or B<-b>
+
+Use bzip2 for compression (default if the above are not available)
+
+=item B<--gzip> or B<-g>
+
+Use gzip for compression (default if the above are not available)
+
+=item B<--compprog=>I<program> or B<-c> I<program>
+
+Use I<program> as compression program
+
+=item B<--debug> or B<-d> or B<-D>
+
+Before deleting a logfile print the reason to stderr.
+
+=item B<-->
+
+Last option
+
+=back
+
+=head1 VERSION
+
+Version 7.6
+
+=head1 AUTHOR
+
+Martin VE<auml>th E<lt>martin@mvath.deE<gt>
+
+=cut
+
+# Default for the Options:
+
+my $root = '/';
+my $show = '';
+my $oldformat = '';
+my $newer = '';
+my $older = '';
+my $debug = '';
+my $compprg = '';
+
+# Parse Options:
+
+$Getopt::Long::bundling = 1;
+GetOptions(
+	'help|h', sub { pod2usage(1) },
+	'man|?', sub { pod2usage(-verbose => 2) },
+	'show!', \$show,
+	'pretend!', \$show,
+	'p', \$show,
+	's', \$show,
+	'gzip|g', sub { $compprg = 'gzip' },
+	'bzip2|bzip|b', sub { $compprg = 'bzip2' },
+	'lzma|l', sub { $compprg = 'lzma' },
+	'xz|x', sub { $compprg = 'xz' },
+	'compprog|c', sub { $compprg = $_[1] },
+	'debug|d|D', \$debug,
+	'oldformat|O', \$oldformat,
+	'root|r=s', sub { $root = $_[1] },
+	'newer|n=i', sub { $newer = $_[1] },
+	'older|o=i', sub { $older = $_[1] }
+) or pod2usage(2);
+
+# Set default variables according to the options:
+
+$#ARGV >= 0 or pod2usage(2);
+$root =~ /\/$/ or $root = "${root}/";
+(-d $root) or &fatal("root-directory $root is no directory");
+
+sub have_prg {
+	my($a) = @_;
+	return (system("command -v $a \>/dev/null 2\>\&1") == 0)
+}
+
+if($compprg eq '') {
+	if(have_prg('xz')) {
+		$compprg = 'xz'
+	}
+	elsif(have_prg('lzma')) {
+		$compprg = 'lzma'
+	}
+	elsif(have_prg('bzip2')) {
+		$compprg = 'bzip2'
+	}
+	elsif(have_prg('gzip')) {
+		$compprg = 'gzip'
+	}
+	else {
+		&fatal("cannot find working compression program")
+	}
+}
+
+# Get directory paths
+
+my $eix_functions = `command -v eix-functions.sh 2\>/dev/null`;
+chomp($eix_functions);
+sub getdir {
+	my($name, $default) = @_;
+	my $a;
+	if($eix_functions ne '') {
+		$a = `. \'$eix_functions\' \&\& ReadVar x $name && printf \'\%s\' \"\$x\"`
+	}
+	else {
+		$a = `portageq envvar $name`;
+		chomp($a)
+	}
+	($a ne '') or $a = $default;
+	$a =~ s!/$!!;
+	$a =~ s!^/!$root!o;
+	(-d "$a") or $a = '';
+	return $a;
+}
+
+sub getsub { my($dir, $name) = @_;
+	if($dir eq '') { return '' }
+	$name = "${dir}/${name}";
+	if(-d "$name") { return $name }
+	return ''
+}
+
+my $logdir = &getdir("PORT_LOGDIR", '/var/log/portage');
+my $porttmp = &getdir("PORTAGE_TMPDIR", '/var/tmp');
+my $elogdir = &getsub($logdir, 'elog');
+my $builddir = &getsub($porttmp, 'portage');
+my $instdir = "${root}var/db/pkg";
+
+# hash installed packages
+
+my %inames = ();
+my %ipaths = ();
+my %double = ();
+
+sub getinstalled {
+	if(keys(%inames)>0) {
+		return
+	}
+	(-d "$instdir") or &fatal("cannot find directory $instdir");
+	opendir(PARENT, $instdir) or &fatal("cannot open directory $instdir");
+	my $a = undef;
+	while($a = readdir(PARENT), defined($a)) {
+		next if $a =~ /^\./;
+		my $fullname = "${instdir}/$a";
+		next unless (-d $fullname);
+		if(opendir(CHILD, $fullname)) {
+			my $b = undef;
+			while($b = readdir(CHILD), defined($b)) {
+				next if $b =~ /^\./;
+				next unless (-d "${fullname}/$b");
+				if(exists($inames{$b})) {
+					$double{$b} = $inames{$b}
+				}
+				$inames{$b} = $a; $ipaths{"$a/$b"} = ''
+			}
+			closedir(CHILD)
+		}
+	}
+	closedir(PARENT)
+}
+
+
+# read a directory into @files, possibly sorting it lexicographically
+
+my @files = ();
+
+sub getfiles { my($dir, $sort, $all) = @_;
+	@files = ();
+	return if($dir eq '');
+	return unless(opendir(DIR, $dir));
+	my $a = undef;
+	while($a = readdir(DIR), defined($a)) {
+		if($all) {
+			next if(($a eq '.') || ($a eq '..'))
+		}
+		else {
+			next if $a =~ /^\./
+		}
+		push @files, $a
+	}
+	closedir(DIR);
+	return unless($sort);
+	@files = sort @files
+}
+
+
+# test whether file/dir has an allowed date
+
+my $currtime = time();
+sub daterange { my($name, $older, $newer) = @_;
+	if(($newer eq '') && ($older eq '')) {
+		return 1
+	}
+	my $mtime = (stat($name))[9];
+	my $diff = ($currtime-$mtime)/3600;
+	if($newer ne '') {
+		if($diff > $newer) {
+			return ''
+		}
+	}
+	if($older ne '') {
+		if($diff <= $older) {
+			return ''
+		}
+	}
+	return 1
+}
+
+
+# Deletion of dir/file:
+
+sub deldir { my($name) = @_;
+	return unless(-d "$name");
+	return unless(&daterange($name, $older, ''));
+	print "rm -rf -- \'$name\'\n";
+	return if($show);
+	if(system('rm', '-rf', '--', $name) != 0) {
+		&warning("cannot remove $name")
+	}
+}
+
+sub delfile { my($name) = @_;
+	return unless(-f "$name");
+	return unless(&daterange($name, $older, ''));
+	print "rm -- \'$name\'\n";
+	return if($show);
+	if(unlink($name) != 1) {
+		&warning("cannot unlink $name")
+	}
+}
+
+sub renamefile { my($name, $newname) = @_;
+	return unless(-f "$name");
+	return unless(&daterange($name, $older, ''));
+	print "mv -- \'$name\' \'$newname\'\n";
+	return if($show);
+	unless(rename($name, $newname)) {
+		&warning("cannot rename $name->$newname")
+	}
+}
+
+
+# Test whether file appears to be an installation log:
+
+sub is_install_log{ my($file) = @_;
+	if($file =~ /\.(([bgx]?z.?)|(lz[a-z]*))$/i) {
+		return 1
+	}
+	my $ret = '';
+	unless(open(FILE, '<', $file)) {
+		print STDERR "cannot read: ${file}" if($debug);
+		return ''
+	}
+	while(<FILE>) {
+		if(/Completed installing/) {
+			$ret = 1;
+			last
+		}
+	}
+	close(FILE);
+	return $ret
+}
+
+
+# The main cleanup functions:
+
+sub cleanlogs {
+	&getinstalled;
+	&getfiles($logdir, '', '');
+	# Let %nam{"category/name-version"} = [filenames], deleting not installed files
+	my %nam = ();
+	my %ren = ();
+	my @compress = ();
+	foreach my $n (@files) {
+		my $name;
+		my $installed = '';
+		if($n =~ /^([^:]*):([^:]*):/) {
+			$name = "${1}/${2}";
+			if(exists($ipaths{$name})) {
+				$installed = 1
+			}
+		}
+		elsif($n =~ /^(\d+)\-(.+)\.log(\.(([bg]?z.?)|(lz[a-z]*)))$/i) {
+			my $c = $inames{$2};
+			if(defined($c)) {
+				$name = "${c}/${2}";
+				$ren{$n} = "${c}:${2}:00000000-${1}.log${3}";
+				$installed = 1;
+				if(exists($double{$2})) {
+					my $conf = $double{$2};
+					print STDERR "Warning: conflict between ${c}/${2} and ${conf}/${2}\n";
+				}
+			}
+		}
+		else {
+			next
+		}
+		if($installed) {
+			my $a = $nam{$name};
+			if(defined($a)) {
+				push @$a, $n
+			}
+			else {
+				$nam{$name} = [$n]
+			}
+			next
+		}
+		if($debug) {
+			print STDERR "not installed: $n\n"
+		}
+		&delfile("${logdir}/$n")
+	}
+	NAMELOOP:foreach my $n (sort(keys(%nam)))
+	{
+		my $namref = $nam{$n};
+		# my @fnames = sort { $a <=> $b } (@$namref);
+		my @fnames = sort {(stat("${logdir}/${a}"))[9] <=> (stat("${logdir}/${b}"))[9]} (@$namref);
+		# Possibly erase one element from the list: The file to keep.
+		# Also push this file to @compress if it was not already compressed.
+		my $eraseexcept = undef;
+		for(my $i = $#fnames; $i >= 0; $i--) {
+			my $fname = $fnames[$i];
+			if(defined($eraseexcept)) {
+				if($debug) {
+					print STDERR "later log ${eraseexcept} exists: ${fname}\n"
+				}
+				next
+			}
+			my $fpath = "${logdir}/${fname}";
+			next unless(-f $fpath);
+			next NAMELOOP unless(&daterange($fpath, '', $newer));
+			unless(&is_install_log($fpath)) {
+				print STDERR "no installation log: ${fname}\n" if($debug);
+				next
+			}
+			my $r = $ren{$fname};
+			if(defined($r)) {
+				&renamefile($fpath, "${logdir}/${r}")
+			}
+			delete $fnames[$i];
+			$eraseexcept = $fname;
+			if($eraseexcept =~ /\.log$/i) {
+				push @compress, $eraseexcept
+			}
+		}
+		foreach my $fname (@fnames) {
+			&delfile("${logdir}/${fname}")
+		}
+	}
+	# Compress the files...
+	foreach my $f (@compress) {
+		print "${compprg} -- \'${logdir}/${f}\'\n";
+		next if($show);
+		system(${compprg}, "--", "${logdir}/${f}")
+	}
+}
+
+# Only useful if certainly no "dummy" logs can exist:
+sub cleanlogs_new_stupid {
+	&getinstalled;
+	&getfiles($logdir, 1, '');
+	my $previous = '';
+	my $previous_mtime = '';
+	my($previous_name, $previous_debugname);
+	for(my $i = 0; $i <= $#files; ) {
+		$_ = $files[$i++];
+		my $name = "${logdir}/$_";
+		next unless(-f $name);
+		next unless(/^([^:]*):([^:]*):/);
+		my $current = "$1/$2";
+		my $debugname = $_;
+		if(!exists($ipaths{"$current"})) {
+			print STDERR "not installed: ${debugname}\n" if($debug);
+			&delfile($name);
+			next
+		}
+		if($current eq $previous) {
+			my $mtime = (stat($name))[9];
+			if($previous_mtime eq '') {
+				$previous_mtime = (stat($previous_name))[9]
+			}
+			if($mtime < $previous_mtime) {
+				print STDERR "newer log exists: ${debugname}\n" if($debug);
+				&delfile($name);
+				next
+			}
+			print STDERR "newer log exists: ${previous_debugname}\n" if($debug);
+			&delfile($previous_name);
+			$previous_mtime = $mtime;
+		}
+		else {
+			$previous_mtime = '';
+			$previous = $current
+		}
+		$previous_name = $name;
+		$previous_debugname = $debugname;
+	}
+}
+
+sub cleanelogs {
+	&getinstalled;
+	&getfiles($elogdir, 1, '');
+	for(my $i = 0; $i <= $#files; ) {
+		$_ = $files[$i++];
+		my $name = "${elogdir}/$_";
+		next unless(-f $name);
+		next unless(/^([^:]*):([^:]*):/);
+		if((! (($i <= $#files) && (index($files[$i], "$1:$2:") == $[))) &&
+			exists($ipaths{"$1/$2"})) {
+			next unless(&daterange($name, $older, $newer));
+			my $willclean = 1;
+			next unless open(FILE, '<', $name);
+			while(<FILE>) {
+				chomp; s/\s*$//;
+				next if($_ eq '');
+				s/^\s*//;
+				next if(/^[A-Z]*:\s\S*$/i);
+				next if(/^\S*abling confcache/i);
+				next if(/^\S*\s?\S*FLAGS contain\S* \S* which can break package/i);
+				next if(/^Before you file a bug/i);
+				next if(/^re-compile the package in question/i);
+				next if(/^[A-Z]\S*ing /);
+				next if(/^\s*\>\>\>\s*SetUID/);
+				next if(/^\s*\.\.\.\s*$/);
+				next if(/^Byte compiling /i);
+				$willclean = '';
+				last
+			}
+			close(FILE);
+			next unless($willclean)
+		}
+		&delfile($name);
+	}
+}
+
+sub cleannotes {
+	&getinstalled;
+	my $noticedir = &getdir("PORT_ENOTICE_DIR", '/var/log/notices');
+	&getfiles($noticedir, 1, '');
+	foreach(@files) {
+		my $name = "${noticedir}/$_";
+		next unless(-f $name);
+		if(exists($inames{$_})) {
+			next unless(&daterange($name, $older, $newer));
+			my $willclean = 1;
+			next unless open(FILE, '<', $name);
+			while(<FILE>) {
+				chomp; s/\s*$//;
+				next if($_ eq '');
+				next if(/^[a-z]*:$/);
+				next if(/^info:\s*(Applying)?\s*\S*\.((diff)|(patch))(\.\S*)?(\s*\.\.\.)?$/i);
+				next if(/^info:\s*((Updating)|(Using))\s*\S*$/i);
+				next if(/^info:Running eautoreconf in /i);
+				next if(/^info:Applying various patches/i);
+				next if(/^info:Done with patching/i);
+				next if(/^info:Excluding patches/i);
+				next if(/^info:Using GNU config files from /i);
+				$willclean = '';
+				last;
+			}
+			close(FILE);
+			next unless($willclean);
+		}
+		&delfile($name);
+	}
+}
+
+sub cleanbuilds {
+	&getfiles($builddir, 1, 1);
+	foreach(@files) {
+		next if($_ eq 'homedir');
+		my $name = "${builddir}/$_";
+		&deldir($name)
+	}
+}
+
+# Execute main functions according to the argument(s):
+
+for (@ARGV) {
+	if(/^log/i) {
+		&cleanlogs
+	}
+	elsif(/^elog/i) {
+		&cleanelogs
+	}
+	elsif(/^e?not(ic)?e/i) {
+		&cleannotes
+	}
+	elsif(/^(build)|(te?mp)/i) {
+		&cleanbuilds
+	}
+	elsif(/^all/i) {
+		&cleanlogs
+		&cleanelogs
+		&cleannotes
+		&cleanbuilds
+	}
+	else {
+		&fatal("unknown argument $_")
+	}
+}
+
+
+__END__
+

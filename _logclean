@@ -1,0 +1,16 @@
+#compdef logclean
+_arguments -s -S : \
+'(* -)'{'--help','-h'}'[print a brief help]' \
+'(* -)'{'--man','-\\?'}'[show extended help as a manpage]' \
+{'(--oldformat)-O','(-O)--oldformat'}'[logfiles are in old format \<portage-2.1.1]' \
+{'(--pretend -p '{'--show)-s','-s)--show'},'(--show -s '{'--pretend)-p','-p)--pretend'}}'[only show what would be removed]' \
+{'(--root)-r+','(-r)--root='}'[Let ARG instead of / be root directory]:root-directory:_files -/' \
+{'(--older)-o+','(-o)--older='}'[Only delete files older than ARG hours]:hours:(1)' \
+{'(--newer)-n+','(-n)--newer='}'[Skip scanning older than ARG hours]:hours-to-skip:(1)' \
+{'(--xz)-x','(-x)--xz'}'[Use xz as compression program]' \
+{'(--lzma)-l','(-l)--lzma'}'[Use lzma as compression program]' \
+{'(--bzip2)-b','(-b)--bzip2'}'[Use bzip2 as compression program]' \
+{'(--gzip)-g','(-g)--gzip'}'[Use gzip as compression program]' \
+{'(--compprog)-c+','(-c)--compprog='}'[Use ARG as compression program]:compression-program:_command_names -e' \
+{'(--debug -d)-D','(--debug -D)-d','(-d -D)--debug'}'[before deleting print a reason]' \
+'1:what-to-clean:(all log elog notices builds)'
