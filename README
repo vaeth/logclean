@@ -22,6 +22,8 @@ This script can also cleanup your temporary installation directories in
 
 This script is also offers option for a convenient usage from a cron job.
 
+If you have installed app-portage/eix, this script will run slightly faster.
+
 For installation, copy logclean with executable permission in your path.
 To obtain support for zsh completion, you can copy _logclean to a
 directory of zsh's $fpath
