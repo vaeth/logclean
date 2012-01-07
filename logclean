@@ -14,9 +14,9 @@ logclean - Remove unneeded portage log- and tempfiles
 
 =head1 SYNOPSIS
 
-B<logclean> [options] B<all>|B<log>|B<elog>|B<notices>|B<builds>
+B<logclean> [options] B<all>|B<log>|B<elog>|B<notices>|B<builds>|B<man>|B<help>
 
-To get an extended help, type B<logclean --man> or B<logclean -?>
+To get an extended help, type B<logclean --man> or B<logclean man>
 
 =head1 DESCRIPTION
 
@@ -149,7 +149,7 @@ Last option
 
 =head1 VERSION
 
-Version 7.6
+Version 7.7
 
 =head1 AUTHOR
 
@@ -171,7 +171,7 @@ my $compprg = '';
 
 $Getopt::Long::bundling = 1;
 GetOptions(
-	'help|h', sub { pod2usage(1) },
+	'help|h', sub { pod2usage(0) },
 	'man|?', sub { pod2usage(-verbose => 2) },
 	'show!', \$show,
 	'pretend!', \$show,
@@ -187,7 +187,7 @@ GetOptions(
 	'root|r=s', sub { $root = $_[1] },
 	'newer|n=i', sub { $newer = $_[1] },
 	'older|o=i', sub { $older = $_[1] }
-) or pod2usage(2);
+) or pod2usage(1);
 
 # Set default variables according to the options:
 
@@ -620,6 +620,12 @@ for (@ARGV) {
 		&cleanelogs
 		&cleannotes
 		&cleanbuilds
+	}
+	elsif(/^help/i) {
+		 pod2usage(0);
+	}
+	elsif(/^man/i) {
+		 pod2usage(-verbose => 2)
 	}
 	else {
 		&fatal("unknown argument $_")

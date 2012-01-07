@@ -13,4 +13,4 @@ _arguments -s -S : \
 {'(--gzip)-g','(-g)--gzip'}'[Use gzip as compression program]' \
 {'(--compprog)-c+','(-c)--compprog='}'[Use ARG as compression program]:compression-program:_command_names -e' \
 {'(--debug -d)-D','(--debug -D)-d','(-d -D)--debug'}'[before deleting print a reason]' \
-'1:what-to-clean:(all log elog notices builds)'
+'*:what-to-clean:(all log elog notices builds logclean help man)'
