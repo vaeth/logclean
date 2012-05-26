@@ -39,7 +39,7 @@ installed, if there appears to be a newer installation logfile,
 or if it does not appear to be an installation logfile at all.
 Moreover, all "needed" logfiles are compressed with xz/lzma/bzip2/gzip.
 
-=item B<logclean> [options] B<elog[s]>
+-item B<logclean> [options] B<elog[s]>
 
 Remove unneded files in ${PORTAGE_LOGDIR}/elog
 
@@ -116,26 +116,31 @@ This is essentially only useful in connection with <portage-2.1.1, namely
 if an emerge just failed and you want to erase the latest "failed" log(s)
 to avoid that the output of the next emerge is appended to them.
 
+=item B<--shorten> or <-S>
+
+Shorten logs to only informal messages.
+
 =item B<--xz> or B<-x>
 
 Use xz for compression (default if available).
-You might want to set something like XZ_OPT="--extreme -5" in the environment
+You might want to set something like XZ_OPT="--extreme -5" in the environment.
 
 =item B<--lzma> or B<-l>
 
-Use lzma for compression (default if the above are not available)
+Use lzma for compression (default if the above are not available).
 
 =item B<--bzip2> or B<-b>
 
-Use bzip2 for compression (default if the above are not available)
+Use bzip2 for compression (default if the above are not available).
 
 =item B<--gzip> or B<-g>
 
-Use gzip for compression (default if the above are not available)
+Use gzip for compression (default if the above are not available).
 
 =item B<--compprog=>I<program> or B<-c> I<program>
 
-Use I<program> as compression program
+Use I<program> as compression program.
+Use an empty string if you want no compression.
 
 =item B<--debug> or B<-d> or B<-D>
 
@@ -149,7 +154,7 @@ Last option
 
 =head1 VERSION
 
-Version 7.7
+Version 7.8
 
 =head1 AUTHOR
 
@@ -165,7 +170,8 @@ my $oldformat = '';
 my $newer = '';
 my $older = '';
 my $debug = '';
-my $compprg = '';
+my $shorten = '';
+my $compprg = undef;
 
 # Parse Options:
 
@@ -177,6 +183,8 @@ GetOptions(
 	'pretend!', \$show,
 	'p', \$show,
 	's', \$show,
+	'shorten!', \$shorten,
+	'S', \$shorten,
 	'gzip|g', sub { $compprg = 'gzip' },
 	'bzip2|bzip|b', sub { $compprg = 'bzip2' },
 	'lzma|l', sub { $compprg = 'lzma' },
@@ -193,14 +201,15 @@ GetOptions(
 
 $#ARGV >= 0 or pod2usage(2);
 $root =~ /\/$/ or $root = "${root}/";
+$root =~ /^\// or &fatal('root-directory must be absolute (starting with /)');
 (-d $root) or &fatal("root-directory $root is no directory");
 
 sub have_prg {
 	my($a) = @_;
-	return (system("command -v $a \>/dev/null 2\>\&1") == 0)
+	return (system("command -v $a " . '>/dev/null 2>&1') == 0)
 }
 
-if($compprg eq '') {
+unless(defined($compprg)) {
 	if(have_prg('xz')) {
 		$compprg = 'xz'
 	}
@@ -233,9 +242,9 @@ sub getdir {
 		chomp($a)
 	}
 	($a ne '') or $a = $default;
-	$a =~ s!/$!!;
-	$a =~ s!^/!$root!o;
-	(-d "$a") or $a = '';
+	$a =~ s!^/*!!;
+	$a = "${root}${a}";
+	(-d $a) or $a = '';
 	return $a;
 }
 
@@ -246,8 +255,8 @@ sub getsub { my($dir, $name) = @_;
 	return ''
 }
 
-my $logdir = &getdir("PORT_LOGDIR", '/var/log/portage');
-my $porttmp = &getdir("PORTAGE_TMPDIR", '/var/tmp');
+my $logdir = &getdir('PORT_LOGDIR', '/var/log/portage');
+my $porttmp = &getdir('PORTAGE_TMPDIR', '/var/tmp');
 my $elogdir = &getsub($logdir, 'elog');
 my $builddir = &getsub($porttmp, 'portage');
 my $instdir = "${root}var/db/pkg";
@@ -338,7 +347,7 @@ sub daterange { my($name, $older, $newer) = @_;
 sub deldir { my($name) = @_;
 	return unless(-d "$name");
 	return unless(&daterange($name, $older, ''));
-	print "rm -rf -- \'$name\'\n";
+	&shprint('rm -rf', $name);
 	return if($show);
 	if(system('rm', '-rf', '--', $name) != 0) {
 		&warning("cannot remove $name")
@@ -348,7 +357,7 @@ sub deldir { my($name) = @_;
 sub delfile { my($name) = @_;
 	return unless(-f "$name");
 	return unless(&daterange($name, $older, ''));
-	print "rm -- \'$name\'\n";
+	&shprint('rm', $name);
 	return if($show);
 	if(unlink($name) != 1) {
 		&warning("cannot unlink $name")
@@ -358,7 +367,7 @@ sub delfile { my($name) = @_;
 sub renamefile { my($name, $newname) = @_;
 	return unless(-f "$name");
 	return unless(&daterange($name, $older, ''));
-	print "mv -- \'$name\' \'$newname\'\n";
+	&shprint('mv', $name, $newname);
 	return if($show);
 	unless(rename($name, $newname)) {
 		&warning("cannot rename $name->$newname")
@@ -387,6 +396,67 @@ sub is_install_log{ my($file) = @_;
 	return $ret
 }
 
+# Shorten a logfile. Note that we should keep the flag used in is_install_log
+sub shorten_log
+{
+	my($file) = @_;
+	if($file =~ /\.(([bgx]?z.?)|(lz[a-z]*))$/i) {
+		return ''
+	}
+	my $write = '';
+	unless(open(FILE, '<', $file)) {
+		return ''
+	}
+	my @A = ();
+	my $delete = 0;
+	my $mode = 1;
+	while(<FILE>) {
+		my $push = '';
+		if($mode) {
+			if(/Unpacking source/) {
+				$mode = '';
+				++$delete;
+				next
+			}
+			$push = 1
+		}
+		elsif(/^ (\e.*)\*/) {
+			$push = 1
+		}
+		if(/Completed installing/) {
+			$mode = '';
+			$push = 1
+		}
+		if($push) {
+			push(@A, $_)
+		}
+		else {
+			++$delete;
+		}
+	}
+	close(FILE);
+	if($delete < 2) {
+		return ''
+	}
+	&shprint(': shorten', $file);
+	if($show) {
+		return 1;
+	}
+	my ($atime, $mtime) = (stat($file))[8, 9];
+	unless(open(FILE, '>', $file)) {
+		printf STDERR "cannot open $file for writing";
+		return '';
+	}
+	for my $i (@A) {
+		unless(print FILE $i) {
+			print STDERR "cannot write to $file";
+			last
+		}
+	}
+	close(FILE);
+	utime($atime, $mtime, $file);
+	return 1
+}
 
 # The main cleanup functions:
 
@@ -444,7 +514,7 @@ sub cleanlogs {
 		# Possibly erase one element from the list: The file to keep.
 		# Also push this file to @compress if it was not already compressed.
 		my $eraseexcept = undef;
-		for(my $i = $#fnames; $i >= 0; $i--) {
+		for(my $i = $#fnames; $i >= 0; --$i) {
 			my $fname = $fnames[$i];
 			if(defined($eraseexcept)) {
 				if($debug) {
@@ -475,9 +545,13 @@ sub cleanlogs {
 	}
 	# Compress the files...
 	foreach my $f (@compress) {
-		print "${compprg} -- \'${logdir}/${f}\'\n";
-		next if($show);
-		system(${compprg}, "--", "${logdir}/${f}")
+		my $file="${logdir}/${f}";
+		&shorten_log($file) if($shorten);
+		if($compprg ne '') {
+			&shprint($compprg, $file);
+			next if($show);
+			system($compprg, $file);
+		}
 	}
 }
 
@@ -598,6 +672,34 @@ sub cleanbuilds {
 		my $name = "${builddir}/$_";
 		&deldir($name)
 	}
+}
+
+sub shq ($)
+{
+	my($a) = (@_);
+	$a =~ s/\'/\'\\\'\'/go; $a = "'$a'";
+	$a =~ s/(^|[^\\])\'([\da-zA-Z\_\-\,\.\:\/]*)\'/$1$2/g;
+	return(($a ne '') ? $a : "''");
+}
+
+sub shqs ($)
+{
+	return ' ' . &shq($_[0])
+}
+
+sub shdash
+{
+	my($s, $r, $t) = (shift, '', '');
+	for my $i (@_) {
+		$t = 1 if($i =~ /^[-+]/o);
+		$r .= &shqs($i)
+	}
+	return(($t) ? ($s . ' --' . $r) : ($s . $r))
+}
+
+sub shprint
+{
+	print &shdash(@_) . "\n"
 }
 
 # Execute main functions according to the argument(s):
