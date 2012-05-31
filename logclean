@@ -21,7 +21,8 @@ To get an extended help, type B<logclean --man> or B<logclean man>
 =head1 DESCRIPTION
 
 This script can remove all logfiles of portage which do not correspond to
-currently installed packages. It can also remove the tempfiles of portage.
+currently installed packages and shorten/compress the other ones.
+It can also remove the tempfiles of portage.
 What should be removed must be specified in the argument:
 
 =over 8
@@ -37,7 +38,9 @@ Remove unneded files in ${PORT_LOGDIR} (defaults to /var/log/portage).
 A logfile counts as unneeded if no corresponding package seems to be
 installed, if there appears to be a newer installation logfile,
 or if it does not appear to be an installation logfile at all.
-Moreover, all "needed" logfiles are compressed with xz/lzma/bzip2/gzip.
+Moreover, all "needed" logfiles are compressed with xz/lzma/bzip2/gzip;
+additionally, logfiles of packages specified in F</etc/logclean.conf>
+are shortened.
 
 -item B<logclean> [options] B<elog[s]>
 
@@ -67,7 +70,8 @@ Any directory here (with all its contents) except for F<homedir> is
 considered as unneeded (unless its mtime is not older than specified
 by the -o option).
 
-Do not use B<builds> if portage might be running (e.g. in a cron job).
+Do not use B<builds> (or B<all>) if portage might be running
+(in particular, do not use B<build> or B<all> in a cron job)!
 
 
 =back
@@ -116,9 +120,29 @@ This is essentially only useful in connection with <portage-2.1.1, namely
 if an emerge just failed and you want to erase the latest "failed" log(s)
 to avoid that the output of the next emerge is appended to them.
 
-=item B<--shorten> or <-S>
+=item B<--shorten=>I<mask> or B<-S> I<mask>
 
-Shorten logs to only informal messages.
+Acts as if the content of I<mask> was added to F</etc/logclean.conf>
+It is possible to use this option repeatedly and to combine it with the
+option B<--shortenfile>; all these options will take effect in the order
+they are passed to B<logclean>.
+In particular, B<--shorten=-> will cancel all from F</etc/logclean.conf>.
+If you want to shorten always, use B<-S*> (must be quoted in shells!).
+
+=item B<--shortenfile=>I<file> or B<-f> I<file>
+
+Act as if the content of I<file> was added to F</etc/logclean.conf>
+I<file> can thus override the defaults from F</etc/logclean.conf>,
+since later entries can override previous ones (see the description below).
+It is possible to use this option repeatedly and to combine it
+with B<--shorten> described above; all these options will take effect
+in the order they are passed to B<logclean>.
+
+For instance, to substitute F</etc/logclean.conf> by
+F</usr/local/etc/logclean.conf> you can pass the options
+B<-S-> B<-f/usr/local/etc/logclean.conf> in this order to B<logclean>
+(B<-S-> is not necessary if the first line in F</usr/local/etc/logclean.conf>
+is the line B<-> which means that all previous entries are ignored.)
 
 =item B<--xz> or B<-x>
 
@@ -152,9 +176,57 @@ Last option
 
 =back
 
+=head1 /etc/logclean.conf
+
+Typically, logs of some packages (like sys-kernel/gentoo-sources)
+are long but rather unimportant except for a few informal messages.
+Therefore, by default these logs are shortened to lines with informal messages.
+The default for which packages this happens is specified in /etc/logclean.conf.
+The format of this file is as follows:
+Comment lines are marked with '#'; all other lines are of the form
+
+=over 8
+
+=item B<category/package>
+
+or
+
+=item B<-category/package>
+
+=back
+
+It is admissible to use the wildcards * or ? in the usual manner.
+Every package matching a line is shortened;
+lines with leading B<-> nagate a previous shortening.
+Later entries override earlier entries. For instance,
+
+=over 8
+
+=item B<dev-python/*>
+
+=item B<-dev-python/pygtk>
+
+=back
+
+means that all logs of packages of the dev-python category should be shortened
+with the exception of the package dev-python/pygtk.
+If the lines would have been used in the inverse order
+
+=over 8
+
+=item B<-dev-python/pygtk>
+
+=item B<dev-python/*>
+
+=back
+
+the first line would have no effect since it is negated by the second line.
+As an exceptional special case, a line containing only B<-> is equivalent
+to the line B<-*> (which means to ignore all previous lines).
+
 =head1 VERSION
 
-Version 7.8
+Version 8.0
 
 =head1 AUTHOR
 
@@ -170,10 +242,25 @@ my $oldformat = '';
 my $newer = '';
 my $older = '';
 my $debug = '';
-my $shorten = '';
 my $compprg = undef;
+my @confdata = ( '#/etc/logclean.conf' );
 
 # Parse Options:
+
+sub push_confdata { my ($cref, $i) = @_;
+	$i =~ s/^\s+//;
+	return if(($i eq '') || ($i =~ /^\#/));
+	$i =~ s/\s+$//;
+	if($i =~ /^\-(\*(\/\*)?)?$/) {
+		@$cref = ();
+	}
+	elsif($i =~ /^\*(\/\*)?/) {
+		@$cref = ('*');
+	}
+	else {
+		push(@$cref, $i)
+	}
+}
 
 $Getopt::Long::bundling = 1;
 GetOptions(
@@ -183,8 +270,8 @@ GetOptions(
 	'pretend!', \$show,
 	'p', \$show,
 	's', \$show,
-	'shorten!', \$shorten,
-	'S', \$shorten,
+	'shorten|S=s', sub { &push_confdata(\@confdata, $_[1]) },
+	'shortenfile|f=s', sub { push(@confdata, '#' . $_[1]) },
 	'gzip|g', sub { $compprg = 'gzip' },
 	'bzip2|bzip|b', sub { $compprg = 'bzip2' },
 	'lzma|l', sub { $compprg = 'lzma' },
@@ -204,8 +291,7 @@ $root =~ /\/$/ or $root = "${root}/";
 $root =~ /^\// or &fatal('root-directory must be absolute (starting with /)');
 (-d $root) or &fatal("root-directory $root is no directory");
 
-sub have_prg {
-	my($a) = @_;
+sub have_prg { my($a) = @_;
 	return (system("command -v $a " . '>/dev/null 2>&1') == 0)
 }
 
@@ -225,6 +311,63 @@ unless(defined($compprg)) {
 	else {
 		&fatal("cannot find working compression program")
 	}
+}
+
+sub readconf
+{
+	my @c = ();
+	for my $d (@confdata) {
+		if($d =~ /^#/) {
+			$d = substr($d, 1);
+			unless(open(CFILE, '<', $d)) {
+				&warning("cannot read config-file $d. Use -S- to skip it");
+				next
+			}
+			while(<CFILE>) {
+				push_confdata(\@c, $_);
+			}
+			close(CFILE);
+		}
+		else {
+			push(@c, $d);
+		}
+	}
+	@confdata = ();
+	for (@c) {
+		my $f = '';
+		if(/^\-/) {
+			$f = '-';
+			$_ = substr($_, 1);
+		}
+		s/([^\w\*\?])/\\$1/g;
+		s/\?/./g;
+		s/\*/.*/g;
+		push(@confdata, $f . $_)
+	}
+}
+
+my $know_conf = '';
+sub willshorten { my ($file) = @_;
+	if($file =~ /\.(([bgx]?z.?)|(lz[a-z]*))$/i) {
+		return ''
+	}
+	unless($know_conf) {
+		$know_conf = 1;
+		&readconf
+	}
+	$file =~ s/([^:]+)\:(.*)\-\d[^\:]*\:.*/$1\/$2/;
+	my $ret = '';
+	for my $c (@confdata) {
+		if($ret && ($c =~ /^-(.*)/)) {
+			if($file =~ /^$1$/) {
+				$ret = '';
+			}
+		}
+		elsif($file =~ /^$c$/) {
+			$ret = 1;
+		}
+	}
+	return $ret
 }
 
 # Get directory paths
@@ -309,9 +452,9 @@ sub getfiles { my($dir, $sort, $all) = @_;
 			next if(($a eq '.') || ($a eq '..'))
 		}
 		else {
-			next if $a =~ /^\./
+			next if($a =~ /^\./)
 		}
-		push @files, $a
+		push(@files, $a)
 	}
 	closedir(DIR);
 	return unless($sort);
@@ -377,7 +520,7 @@ sub renamefile { my($name, $newname) = @_;
 
 # Test whether file appears to be an installation log:
 
-sub is_install_log{ my($file) = @_;
+sub is_install_log { my($file) = @_;
 	if($file =~ /\.(([bgx]?z.?)|(lz[a-z]*))$/i) {
 		return 1
 	}
@@ -400,9 +543,6 @@ sub is_install_log{ my($file) = @_;
 sub shorten_log
 {
 	my($file) = @_;
-	if($file =~ /\.(([bgx]?z.?)|(lz[a-z]*))$/i) {
-		return ''
-	}
 	my $write = '';
 	unless(open(FILE, '<', $file)) {
 		return ''
@@ -460,7 +600,8 @@ sub shorten_log
 
 # The main cleanup functions:
 
-sub cleanlogs {
+sub cleanlogs
+{
 	&getinstalled;
 	&getfiles($logdir, '', '');
 	# Let %nam{"category/name-version"} = [filenames], deleting not installed files
@@ -494,7 +635,7 @@ sub cleanlogs {
 		if($installed) {
 			my $a = $nam{$name};
 			if(defined($a)) {
-				push @$a, $n
+				push(@$a, $n)
 			}
 			else {
 				$nam{$name} = [$n]
@@ -536,7 +677,7 @@ sub cleanlogs {
 			delete $fnames[$i];
 			$eraseexcept = $fname;
 			if($eraseexcept =~ /\.log$/i) {
-				push @compress, $eraseexcept
+				push(@compress, $eraseexcept)
 			}
 		}
 		foreach my $fname (@fnames) {
@@ -545,8 +686,10 @@ sub cleanlogs {
 	}
 	# Compress the files...
 	foreach my $f (@compress) {
-		my $file="${logdir}/${f}";
-		&shorten_log($file) if($shorten);
+		my $file = "${logdir}/${f}";
+		if(&willshorten($f)) {
+			&shorten_log($file)
+		}
 		if($compprg ne '') {
 			&shprint($compprg, $file);
 			next if($show);
@@ -556,7 +699,8 @@ sub cleanlogs {
 }
 
 # Only useful if certainly no "dummy" logs can exist:
-sub cleanlogs_new_stupid {
+sub cleanlogs_new_stupid
+{
 	&getinstalled;
 	&getfiles($logdir, 1, '');
 	my $previous = '';
@@ -597,7 +741,8 @@ sub cleanlogs_new_stupid {
 	}
 }
 
-sub cleanelogs {
+sub cleanelogs
+{
 	&getinstalled;
 	&getfiles($elogdir, 1, '');
 	for(my $i = 0; $i <= $#files; ) {
@@ -633,7 +778,8 @@ sub cleanelogs {
 	}
 }
 
-sub cleannotes {
+sub cleannotes
+{
 	&getinstalled;
 	my $noticedir = &getdir("PORT_ENOTICE_DIR", '/var/log/notices');
 	&getfiles($noticedir, 1, '');
@@ -665,7 +811,8 @@ sub cleannotes {
 	}
 }
 
-sub cleanbuilds {
+sub cleanbuilds
+{
 	&getfiles($builddir, 1, 1);
 	foreach(@files) {
 		next if($_ eq 'homedir');

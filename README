@@ -3,7 +3,7 @@ This project is under the BSD license.
 
 With Gentoo, it is a good idea to keep the install logs
 of all installed packages.
-In case something goes wrong, a "grep"  in these logs is sometimes very handy.
+In case something goes wrong, a "grep" in these logs is sometimes very handy.
 
 However, if you set PORT_LOGDIR in your make.conf, you soon have also
 thousands of logs of obsolete packages, because each emerge (successful or not)
@@ -11,7 +11,8 @@ and also each unmerge (even fast unmerge) produces a logfile.
 
 The purpose of this project is to eliminate all logs except for the
 newest installation logs for the actually installed packages;
-the used ones are compressed using xz, lzma, bzip2, or gzip.
+the used ones are compressed using xz, lzma, bzip2, or gzip,
+and selected ones (from /etc/logclean.conf) are even shortened.
 
 This script takes care in a similar way about your files in
 /var/log/elogs (cf. the ELOG feature of portage) and of your files in
@@ -25,6 +26,7 @@ This script is also offers option for a convenient usage from a cron job.
 If you have installed app-portage/eix, this script will run slightly faster.
 
 For installation, copy logclean with executable permission in your path.
+You should also copy (a possible edited) logclean.conf to /etc.
 To obtain support for zsh completion, you can copy _logclean to a
 directory of zsh's $fpath
 There is also an ebuild in the mv overlay (which is available by layman).
