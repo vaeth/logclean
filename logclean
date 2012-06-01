@@ -16,6 +16,8 @@ logclean - Remove unneeded portage log- and tempfiles
 
 B<logclean> [options] B<all>|B<log>|B<elog>|B<notices>|B<builds>|B<man>|B<help>
 
+B<logclean> [options] B<shortenlog> I<logfile1> I<logfile2> ...
+
 To get an extended help, type B<logclean --man> or B<logclean man>
 
 =head1 DESCRIPTION
@@ -23,7 +25,11 @@ To get an extended help, type B<logclean --man> or B<logclean man>
 This script can remove all logfiles of portage which do not correspond to
 currently installed packages and shorten/compress the other ones.
 It can also remove the tempfiles of portage.
-What should be removed must be specified in the argument:
+What should be removed must be specified in the argument.
+
+(It is possible to specify several arguments which is similar as
+calling B<logclean> repeatedly which these arguments;
+if B<shortenlog> is used, it must be the last.)
 
 =over 8
 
@@ -73,6 +79,18 @@ by the -o option).
 Do not use B<builds> (or B<all>) if portage might be running
 (in particular, do not use B<build> or B<all> in a cron job)!
 
+=back
+
+There is a special call (not included in B<all>):
+
+=over 8
+
+=item B<logclean> [options] B<shortenlog> I<logfile1> I<logfile2> ...
+
+This will shorten all logfiles given as arguments (if they can be shortened).
+Almost no sanity checks are done: It is the caller's responsibility to
+make sure that the arguments are uncompressed logfiles,
+otherwise data damage may occur in these files.
 
 =back
 
@@ -183,22 +201,20 @@ are long but rather unimportant except for a few informal messages.
 Therefore, by default these logs are shortened to lines with informal messages.
 The default for which packages this happens is specified in /etc/logclean.conf.
 The format of this file is as follows:
-Comment lines are marked with '#'; all other lines are of the form
+Comment lines are marked with '#'; all other lines are in one of the form
 
 =over 8
 
 =item B<category/package>
 
-or
-
 =item B<-category/package>
 
 =back
 
-It is admissible to use the wildcards * or ? in the usual manner.
-Every package matching a line is shortened;
-lines with leading B<-> nagate a previous shortening.
-Later entries override earlier entries. For instance,
+It is admissible in these line to use the wildcards *, ?, or [...]
+in the usual manner. Every package matching a line is shortened.
+Lines with leading B<-> negate a previous shortening.
+Later entries can override earlier entries. For instance,
 
 =over 8
 
@@ -226,7 +242,7 @@ to the line B<-*> (which means to ignore all previous lines).
 
 =head1 VERSION
 
-Version 8.0
+Version 8.1
 
 =head1 AUTHOR
 
@@ -243,7 +259,7 @@ my $newer = '';
 my $older = '';
 my $debug = '';
 my $compprg = undef;
-my @confdata = ( '#/etc/logclean.conf' );
+my @confdata = ( [ '/etc/logclean.conf' ] );
 
 # Parse Options:
 
@@ -254,7 +270,7 @@ sub push_confdata { my ($cref, $i) = @_;
 	if($i =~ /^\-(\*(\/\*)?)?$/) {
 		@$cref = ();
 	}
-	elsif($i =~ /^\*(\/\*)?/) {
+	elsif($i =~ /^\*(\/\*)?$/) {
 		@$cref = ('*');
 	}
 	else {
@@ -271,7 +287,7 @@ GetOptions(
 	'p', \$show,
 	's', \$show,
 	'shorten|S=s', sub { &push_confdata(\@confdata, $_[1]) },
-	'shortenfile|f=s', sub { push(@confdata, '#' . $_[1]) },
+	'shortenfile|f=s', sub { push(@confdata, [ $_[1] ] ) },
 	'gzip|g', sub { $compprg = 'gzip' },
 	'bzip2|bzip|b', sub { $compprg = 'bzip2' },
 	'lzma|l', sub { $compprg = 'lzma' },
@@ -317,16 +333,11 @@ sub readconf
 {
 	my @c = ();
 	for my $d (@confdata) {
-		if($d =~ /^#/) {
-			$d = substr($d, 1);
-			unless(open(CFILE, '<', $d)) {
-				&warning("cannot read config-file $d. Use -S- to skip it");
-				next
+		if(ref($d) eq 'ARRAY') {
+			local @ARGV = @$d; # Dirty Perl trick: Cheat <>
+			while(<>) {
+				push_confdata(\@c, $_)
 			}
-			while(<CFILE>) {
-				push_confdata(\@c, $_);
-			}
-			close(CFILE);
 		}
 		else {
 			push(@c, $d);
@@ -334,15 +345,21 @@ sub readconf
 	}
 	@confdata = ();
 	for (@c) {
-		my $f = '';
+		my $negate = '';
 		if(/^\-/) {
-			$f = '-';
+			$negate = 1;
 			$_ = substr($_, 1);
 		}
-		s/([^\w\*\?])/\\$1/g;
+		s!([^\w\Q*?[]-/\E])!\\$1!g;
 		s/\?/./g;
 		s/\*/.*/g;
-		push(@confdata, $f . $_)
+		my $result = qr/^$_$/;
+		if($negate) {
+			push(@confdata, [ $result ] )
+		}
+		else {
+			push(@confdata, $result)
+		}
 	}
 }
 
@@ -358,13 +375,17 @@ sub willshorten { my ($file) = @_;
 	$file =~ s/([^:]+)\:(.*)\-\d[^\:]*\:.*/$1\/$2/;
 	my $ret = '';
 	for my $c (@confdata) {
-		if($ret && ($c =~ /^-(.*)/)) {
-			if($file =~ /^$1$/) {
-				$ret = '';
+		if(ref($c) ne 'ARRAY') {
+			unless($ret) {
+				$ret = 1 if($file =~ /$c/)
 			}
 		}
-		elsif($file =~ /^$c$/) {
-			$ret = 1;
+		elsif($ret) {
+			for my $neg (@$c) {
+				if($file =~ /$neg/) {
+					$ret = ''; last
+				}
+			}
 		}
 	}
 	return $ret
@@ -545,6 +566,7 @@ sub shorten_log
 	my($file) = @_;
 	my $write = '';
 	unless(open(FILE, '<', $file)) {
+		&warning("cannot open $file for reading");
 		return ''
 	}
 	my @A = ();
@@ -578,7 +600,7 @@ sub shorten_log
 	if($delete < 2) {
 		return ''
 	}
-	&shprint(': shorten', $file);
+	&shprint('logclean shortenlog', $file);
 	if($show) {
 		return 1;
 	}
@@ -851,8 +873,12 @@ sub shprint
 
 # Execute main functions according to the argument(s):
 
+my $shortenmode = '';
 for (@ARGV) {
-	if(/^log/i) {
+	if($shortenmode) {
+		&shorten_log($_)
+	}
+	elsif(/^log/i) {
 		&cleanlogs
 	}
 	elsif(/^elog/i) {
@@ -875,6 +901,9 @@ for (@ARGV) {
 	}
 	elsif(/^man/i) {
 		 pod2usage(-verbose => 2)
+	}
+	elsif(/^short/i) {
+		$shortenmode = 1
 	}
 	else {
 		&fatal("unknown argument $_")
