@@ -48,9 +48,9 @@ Moreover, all "needed" logfiles are compressed with xz/lzma/bzip2/gzip;
 additionally, logfiles of packages specified in F</etc/logclean.conf>
 are shortened.
 
--item B<logclean> [options] B<elog[s]>
+=item B<logclean> [options] B<elog[s]>
 
-Remove unneded files in ${PORTAGE_LOGDIR}/elog
+Remove unneded files in ${PORT_LOGDIR}/elog
 
 A file here counts as unneeded if no corresponding package seems to be
 installed, if there appears to be a newer logfile, or if the file appears

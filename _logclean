@@ -1,4 +1,6 @@
 #compdef logclean
+local context state state_descr line
+typeset -A opt_args
 _arguments -s -S : \
 '(* -)'{'--help','-h'}'[print a brief help]' \
 '(* -)'{'--man','-\\?'}'[show extended help as a manpage]' \
@@ -13,4 +15,25 @@ _arguments -s -S : \
 {'(--gzip)-g','(-g)--gzip'}'[Use gzip as compression program]' \
 {'(--compprog)-c+','(-c)--compprog='}'[Use ARG as compression program]:compression-program:_command_names -e' \
 {'(--debug -d)-D','(--debug -D)-d','(-d -D)--debug'}'[before deleting print a reason]' \
-'*:what-to-clean:(all log elog notices builds logclean help man)'
+'1:what to clean:->cmds' \
+'*::logfile:_files'
+local ret=$?
+case $state in
+cmds)
+	local cmds
+	cmds=(
+	'all:Do all cleanups\: log elog notices builds'
+	'log:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
+	'logs:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
+	'elog:Remove unused files in $PORT_LOGDIR/elog'
+	'notices:Remove unused files in $PORT_ENOTICE_DIR'
+	'notes:Remove unused files in $PORT_ENOTICE_DIR'
+	'builds:Remove unneeded data in $PORT_TMPDIR/portage (/var/tmp/portage)'
+	'shortenlog:shorten logfiles FILE1 FILE2 ...'
+	'help:print brief help'
+	'man:print verbose manpage'
+	)
+	_describe -t commands 'what to clean' cmds
+	ret=$?;;
+esac
+return ret
