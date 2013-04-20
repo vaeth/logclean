@@ -14,7 +14,7 @@ logclean - Remove unneeded portage log- and tempfiles
 
 =head1 SYNOPSIS
 
-B<logclean> [options] B<all>|B<log>|B<elog>|B<notices>|B<builds>|B<man>|B<help>
+B<logclean> [options] B<all>|B<emerge>|B<log>|B<elog>|B<notices>|B<builds>|B<man>|B<help>
 
 B<logclean> [options] B<shortenlog> I<logfile1> I<logfile2> ...
 
@@ -37,6 +37,11 @@ if B<shortenlog> is used, it must be the last.)
 
 Do all of the following cleanups in this order
 (do not use B<all> if portage might be running, e.g. in a cron job):
+
+=item B<logclean> [options] B<emerge>
+
+Remove everything from F</var/log/emerge.log> except for the latest
+begin/end emerge entries of installed packages (used by qlop or genlop).
 
 =item B<logclean> [options] B<log[s]>
 
@@ -184,9 +189,16 @@ Use gzip for compression (default if the above are not available).
 Use I<program> as compression program.
 Use an empty string if you want no compression.
 
+=item B<--ignore> or B<-i>
+
+When shortening F</var/log/emerge.log> do not take installed packages into
+account but only rely on unmerge entries in the file itself.
+
 =item B<--debug> or B<-d> or B<-D>
 
 Before deleting a logfile print the reason to stderr.
+In addition, do not shorten F</var/log/emerge.log>
+but only print the new version to stdout.
 
 =item B<-->
 
@@ -242,7 +254,7 @@ to the line B<-*> (which means to ignore all previous lines).
 
 =head1 VERSION
 
-Version 8.1
+Version 9.0
 
 =head1 AUTHOR
 
@@ -257,6 +269,7 @@ my $show = '';
 my $oldformat = '';
 my $newer = '';
 my $older = '';
+my $ignore = '';
 my $debug = '';
 my $compprg = undef;
 my @confdata = ( [ '/etc/logclean.conf' ] );
@@ -293,6 +306,7 @@ GetOptions(
 	'lzma|l', sub { $compprg = 'lzma' },
 	'xz|x', sub { $compprg = 'xz' },
 	'compprog|c', sub { $compprg = $_[1] },
+	'ignore|i', \$ignore,
 	'debug|d|D', \$debug,
 	'oldformat|O', \$oldformat,
 	'root|r=s', sub { $root = $_[1] },
@@ -843,6 +857,68 @@ sub cleanbuilds
 	}
 }
 
+sub cleanemerge
+{
+	&getinstalled unless($ignore);
+	my $file = $root . '/var/log/emerge.log';
+	my @lines=();
+	my %success=(); # [ completed, start1, start2 ]
+	open(FH, '<', $file) or die "cannot open $file for reading.\mStopped";
+	while(<FH>) {
+		next unless(/^\d+:\s*(.*)$/o);
+		my $a = $_;
+		$_ = $1;
+		if(/^\>\>\>\s+emerge\s+\([^\)]+\)\s+([^\s]+)/o) {
+			unless($ignore) {
+				next unless(exists($ipaths{$1}));
+			}
+			push(@lines, [$1, $a]);
+			my $s = $success{$1};
+			if($s->[1] ne '') {
+				$s->[2] = $#lines;
+			} else {
+				$success{$1} = [ '', $#lines ];
+			}
+		} elsif(/^\:\:\:\s+completed\s+emerge\s+\([^\)]+\)\s+([^\s]*)/o) {
+			unless($ignore) {
+				next unless(exists($ipaths{$1}));
+			}
+			push(@lines, [$1, $a]);
+			my $s = $success{$1};
+			if($s->[2] ne '') {
+				$s = [ $#lines, $s->[2] ];
+			} elsif($s->[1] ne '') {
+				$s->[0] = $#lines;
+			}
+		} elsif(/^\>\>\>\s+unmerge\s+success:\s+([^\s]*)/o) {
+			$success{$1} = undef;
+		}
+	}
+	close(FH);
+	unless($debug) {
+		open(FH, '>', $file) or
+			die "cannot open $file for writing.\nStopped"
+	}
+	my $fail = '';
+	for(my $i = 0; $i <= $#lines; ++$i) {
+		my $line = $lines[$i];
+		my $s = $success{$line->[0]};
+		if(($s->[0] ne '') && (($s->[0] == $i) || ($s->[1] == $i))) {
+			if($debug) {
+				print ($line->[1])
+			} else {
+				print FH ($line->[1]) or $fail = 1;
+			}
+		}
+	}
+	unless($debug) {
+		close(FH) or $fail = 1
+	}
+	if($fail) {
+		die "failed to write $file properly.\nStopped"
+	}
+}
+
 sub shq ($)
 {
 	my($a) = (@_);
@@ -878,6 +954,9 @@ for (@ARGV) {
 	if($shortenmode) {
 		&shorten_log($_)
 	}
+	elsif(/^emerge/i) {
+		&cleanemerge
+	}
 	elsif(/^log/i) {
 		&cleanlogs
 	}
@@ -891,6 +970,7 @@ for (@ARGV) {
 		&cleanbuilds
 	}
 	elsif(/^all/i) {
+		&cleanemerge
 		&cleanlogs
 		&cleanelogs
 		&cleannotes

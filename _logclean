@@ -14,7 +14,8 @@ _arguments -C -s -S : \
 {'(--bzip2)-b','(-b)--bzip2'}'[Use bzip2 as compression program]' \
 {'(--gzip)-g','(-g)--gzip'}'[Use gzip as compression program]' \
 {'(--compprog)-c+','(-c)--compprog='}'[Use ARG as compression program]:compression-program:_command_names -e' \
-{'(--debug -d)-D','(--debug -D)-d','(-d -D)--debug'}'[before deleting print a reason]' \
+{'(--ignore)-i','(-i)--ignore'}'[ignore installed packages for emerge.log]' \
+{'(--debug -d)-D','(--debug -D)-d','(-d -D)--debug'}'[before deleting print a reason. emerge.log to stdout]' \
 '1:what to clean:->cmds' \
 '*::logfile:_files'
 local ret=$?
@@ -22,7 +23,8 @@ case $state in
 cmds)
 	local cmds
 	cmds=(
-	'all:Do all cleanups\: log elog notices builds'
+	'all:Do all cleanups\: emerge log elog notices builds'
+	'emerge:Cleanup /var/log/emerge.log'
 	'log:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
 	'logs:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
 	'elog:Remove unused files in $PORT_LOGDIR/elog'
