@@ -42,7 +42,7 @@ Do all of the following cleanups in this order
 
 Remove everything from F</var/log/emerge.log> except for the latest
 begin/end emerge entries of installed packages (used by qlop or genlop)
-and except for the data of the latest 200 (by default) calls of portage.
+and except for the data of the latest 100 (by default) calls of portage.
 
 =item B<logclean> [options] B<log[s]>
 
@@ -127,7 +127,7 @@ Consider I<rootdir> instead of '/' as the root of all directories
 =item B<--keep=>I<keepcalls> or B<-k> I<keepcalls>
 
 When cleaning F</var/log/emerge.log> keep all data of the latest I<keepcalls>
-calls of portage, independent of their content. The default is 200.
+calls of portage, independent of their content. The default is 100.
 
 =item B<--older=>I<h> or B<-o> I<h>
 
@@ -260,7 +260,7 @@ to the line B<-*> (which means to ignore all previous lines).
 
 =head1 VERSION
 
-Version 9.0
+Version 9.2
 
 =head1 AUTHOR
 
@@ -273,7 +273,7 @@ Martin VE<auml>th E<lt>martin@mvath.deE<gt>
 my $root = '/';
 my $show = '';
 my $oldformat = '';
-my $keep = 200;
+my $keep = 100;
 my $newer = '';
 my $older = '';
 my $ignore = '';
