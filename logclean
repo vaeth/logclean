@@ -41,7 +41,8 @@ Do all of the following cleanups in this order
 =item B<logclean> [options] B<emerge>
 
 Remove everything from F</var/log/emerge.log> except for the latest
-begin/end emerge entries of installed packages (used by qlop or genlop).
+begin/end emerge entries of installed packages (used by qlop or genlop)
+and except for the data of the latest 200 (by default) calls of portage.
 
 =item B<logclean> [options] B<log[s]>
 
@@ -122,6 +123,11 @@ Show only what would be removed, do not remove anything
 =item B<--root=>I<rootdir> or B<-r> I<rootdir>
 
 Consider I<rootdir> instead of '/' as the root of all directories
+
+=item B<--keep=>I<keepcalls> or B<-k> I<keepcalls>
+
+When cleaning F</var/log/emerge.log> keep all data of the latest I<keepcalls>
+calls of portage, independent of their content. The default is 200.
 
 =item B<--older=>I<h> or B<-o> I<h>
 
@@ -267,6 +273,7 @@ Martin VE<auml>th E<lt>martin@mvath.deE<gt>
 my $root = '/';
 my $show = '';
 my $oldformat = '';
+my $keep = 200;
 my $newer = '';
 my $older = '';
 my $ignore = '';
@@ -310,6 +317,7 @@ GetOptions(
 	'debug|d|D', \$debug,
 	'oldformat|O', \$oldformat,
 	'root|r=s', sub { $root = $_[1] },
+	'keep|k=i', sub { $keep = $_[1] },
 	'newer|n=i', sub { $newer = $_[1] },
 	'older|o=i', sub { $older = $_[1] }
 ) or pod2usage(1);
@@ -860,41 +868,58 @@ sub cleanbuilds
 sub cleanemerge
 {
 	&getinstalled unless($ignore);
-	my $file = $root . '/var/log/emerge.log';
-	my @lines=();
-	my %success=(); # [ completed, start1, start2 ]
+	my $file = $root . 'var/log/emerge.log';
+	my @start =();
+	my @lines=();	# $line or [ 'category/name-version', $line ]
+	my %success=();	# undef or [ completed, start1, start2 ]
 	open(FH, '<', $file) or die "cannot open $file for reading.\mStopped";
 	while(<FH>) {
 		next unless(/^\d+:\s*(.*)$/o);
-		my $a = $_;
+		push(@lines, $_);
 		$_ = $1;
-		if(/^\>\>\>\s+emerge\s+\([^\)]+\)\s+([^\s]+)/o) {
+		if(/^Started\s+emerge/io) {
+			push(@start, $#lines);
+			if($#start >= $keep) {
+				shift(@start)
+			}
+		} elsif(/^\>\>\>\s+emerge\s+\([^\)]+\)\s+([^\s]+)/io) {
 			unless($ignore) {
 				next unless(exists($ipaths{$1}));
 			}
-			push(@lines, [$1, $a]);
+			$lines[$#lines] = [$1, $lines[$#lines] ];
 			my $s = $success{$1};
-			if($s->[1] ne '') {
-				$s->[2] = $#lines;
+			if(ref($s) ne '') {
+				if($s->[1] < 0) {
+					$s->[1] = $#lines;
+				} else {
+					$s->[2] = $#lines;
+				}
 			} else {
-				$success{$1} = [ '', $#lines ];
+				$success{$1} = [ -1, $#lines, -1 ];
 			}
-		} elsif(/^\:\:\:\s+completed\s+emerge\s+\([^\)]+\)\s+([^\s]*)/o) {
+		} elsif(/^\:\:\:\s+completed\s+emerge\s+\([^\)]+\)\s+([^\s]*)/io) {
 			unless($ignore) {
-				next unless(exists($ipaths{$1}));
+				next unless(exists($ipaths{$1}))
 			}
-			push(@lines, [$1, $a]);
+			$lines[$#lines] = [$1, $lines[$#lines] ];
 			my $s = $success{$1};
-			if($s->[2] ne '') {
-				$s = [ $#lines, $s->[2] ];
-			} elsif($s->[1] ne '') {
+			if(ref($s) ne '') {
 				$s->[0] = $#lines;
+				if($s->[2] >= 0) {
+					$s->[1] = $s->[2]
+				}
+			} else {
+				$success{$1} = [ $#lines, -1, -1 ]
 			}
-		} elsif(/^\>\>\>\s+unmerge\s+success:\s+([^\s]*)/o) {
-			$success{$1} = undef;
+		} elsif(/^\>\>\>\s+unmerge\s+success:\s+([^\s]*)/io) {
+			$success{$1} = undef
 		}
 	}
 	close(FH);
+	my $firstline = $#lines + 1;
+	if($#start >= 0) {
+		$firstline = $start[0]
+	}
 	unless($debug) {
 		open(FH, '>', $file) or
 			die "cannot open $file for writing.\nStopped"
@@ -902,12 +927,25 @@ sub cleanemerge
 	my $fail = '';
 	for(my $i = 0; $i <= $#lines; ++$i) {
 		my $line = $lines[$i];
-		my $s = $success{$line->[0]};
-		if(($s->[0] ne '') && (($s->[0] == $i) || ($s->[1] == $i))) {
+		if(ref($line) ne '') {
+			if($i < $firstline) {
+				my $s = $success{$line->[0]};
+				if(ref($s) ne '') {
+					unless(($s->[0] >= 0) && (($s->[0] == $i) || ($s->[1] == $i))) {
+						next
+					}
+				}
+			}
 			if($debug) {
 				print ($line->[1])
 			} else {
-				print FH ($line->[1]) or $fail = 1;
+				print FH ($line->[1]) or $fail = 1
+			}
+		} elsif($i >= $firstline) {
+			if($debug) {
+				print $line
+			} else {
+				print FH $line or $fail = 1
 			}
 		}
 	}
