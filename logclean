@@ -260,7 +260,7 @@ to the line B<-*> (which means to ignore all previous lines).
 
 =head1 VERSION
 
-Version 9.2
+Version 9.3
 
 =head1 AUTHOR
 
@@ -912,7 +912,10 @@ sub cleanemerge
 				$success{$1} = [ $#lines, -1, -1 ]
 			}
 		} elsif(/^\>\>\>\s+unmerge\s+success:\s+([^\s]*)/io) {
-			$success{$1} = undef
+			my $s = $success{1};
+			if(ref($s) ne '') {
+				$s->[0] = -1
+			}
 		}
 	}
 	close(FH);
