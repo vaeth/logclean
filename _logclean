@@ -1,7 +1,7 @@
 #compdef logclean
 local curcontext="$curcontext" state state_descr line
 typeset -A opt_args
-_arguments -C -s -S : \
+_arguments -C -s -S -A '-*' : \
 '(* -)'{'--help','-h'}'[print a brief help]' \
 '(* -)'{'--man','-\\?'}'[show extended help as a manpage]' \
 {'(--oldformat)-O','(-O)--oldformat'}'[logfiles are in old format \<portage-2.1.1]' \
