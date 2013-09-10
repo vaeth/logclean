@@ -1,5 +1,6 @@
 (C) Martin Väth <martin@mvath.de>
-This project is under the BSD license.
+This project is under a BSD type license, meaning that you can do almost
+anything with it except removing my name.
 
 With Gentoo, it is a good idea to keep the install logs
 of all installed packages.
@@ -13,6 +14,7 @@ The purpose of this project is to eliminate all logs except for the
 newest installation logs for the actually installed packages;
 the used ones are compressed using xz, lzma, bzip2, or gzip,
 and selected ones (from /etc/logclean.conf) are even shortened.
+Moreover, by default all color sequences are removed.
 
 This script takes care in a similar way about your files in
 /var/log/elogs (cf. the ELOG feature of portage) and of your files in

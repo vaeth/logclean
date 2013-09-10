@@ -1,12 +1,22 @@
-#! /usr/bin/perl
+#! /usr/bin/env perl
 use strict;
 use integer;
 use Pod::Usage;
 use Getopt::Long;
+use Term::ANSIColor 2.01 qw(colorstrip);
 
-sub message { print STDERR "logclean: $_[0]\n" }
-sub warning { message "warning: $_[0]" }
-sub fatal { message "$_[0] - Stopped"; exit 2 }
+sub message {
+	print(STDERR "logclean: $_[0]\n")
+}
+
+sub warning {
+	message("warning: $_[0]")
+}
+
+sub fatal {
+	message("$_[0] - Stopped");
+	exit(2)
+}
 
 =head1 NAME
 
@@ -16,7 +26,9 @@ logclean - Remove unneeded portage log- and tempfiles
 
 B<logclean> [options] B<all>|B<emerge>|B<log>|B<elog>|B<notices>|B<builds>|B<man>|B<help>
 
-B<logclean> [options] B<shortenlog> I<logfile1> I<logfile2> ...
+B<logclean> [options] B<shorten> I<logfile1> I<logfile2> ...
+
+B<logclean> [options] B<uncolor> I<logfile1> I<logfile2> ...
 
 To get an extended help, type B<logclean --man> or B<logclean man>
 
@@ -29,7 +41,7 @@ What should be removed must be specified in the argument.
 
 (It is possible to specify several arguments which is similar as
 calling B<logclean> repeatedly which these arguments;
-if B<shortenlog> is used, it must be the last.)
+if B<shorten> or B<uncolor> is used, it must be the last.)
 
 =over 8
 
@@ -52,7 +64,8 @@ installed, if there appears to be a newer installation logfile,
 or if it does not appear to be an installation logfile at all.
 Moreover, all "needed" logfiles are compressed with xz/lzma/bzip2/gzip;
 additionally, logfiles of packages specified in F</etc/logclean.conf>
-are shortened.
+are shortened and all color sequences are removed (unless B<--keepcolor>
+is specified).
 
 =item B<logclean> [options] B<elog[s]>
 
@@ -91,12 +104,17 @@ There is a special call (not included in B<all>):
 
 =over 8
 
-=item B<logclean> [options] B<shortenlog> I<logfile1> I<logfile2> ...
+=item B<logclean> [options] B<shorten> I<logfile1> I<logfile2> ...
 
 This will shorten all logfiles given as arguments (if they can be shortened).
 Almost no sanity checks are done: It is the caller's responsibility to
 make sure that the arguments are uncompressed logfiles,
 otherwise data damage may occur in these files.
+
+=item B<logclean> [options] B<uncolor> I<logfile1> I<logfile2> ...
+
+This is similar to B<shorten> with the difference that only color escape
+sequences are removed.
 
 =back
 
@@ -172,6 +190,10 @@ F</usr/local/etc/logclean.conf> you can pass the options
 B<-S-> B<-f/usr/local/etc/logclean.conf> in this order to B<logclean>
 (B<-S-> is not necessary if the first line in F</usr/local/etc/logclean.conf>
 is the line B<-> which means that all previous entries are ignored.)
+
+=item B<--keepcolor> or B<-C>
+
+Do not remove the ANSI color sequences.
 
 =item B<--xz> or B<-x>
 
@@ -260,7 +282,7 @@ to the line B<-*> (which means to ignore all previous lines).
 
 =head1 VERSION
 
-Version 9.3
+Version 9.4
 
 =head1 AUTHOR
 
@@ -274,6 +296,7 @@ my $root = '/';
 my $show = '';
 my $oldformat = '';
 my $keep = 100;
+my $keepcolor = '';
 my $newer = '';
 my $older = '';
 my $ignore = '';
@@ -283,17 +306,16 @@ my @confdata = ( [ '/etc/logclean.conf' ] );
 
 # Parse Options:
 
-sub push_confdata { my ($cref, $i) = @_;
+sub push_confdata {
+	my ($cref, $i) = @_;
 	$i =~ s/^\s+//;
 	return if(($i eq '') || ($i =~ /^\#/));
 	$i =~ s/\s+$//;
 	if($i =~ /^\-(\*(\/\*)?)?$/) {
-		@$cref = ();
-	}
-	elsif($i =~ /^\*(\/\*)?$/) {
-		@$cref = ('*');
-	}
-	else {
+		@$cref = ()
+	} elsif($i =~ /^\*(\/\*)?$/) {
+		@$cref = ('*')
+	} else {
 		push(@$cref, $i)
 	}
 }
@@ -308,6 +330,7 @@ GetOptions(
 	's', \$show,
 	'shorten|S=s', sub { &push_confdata(\@confdata, $_[1]) },
 	'shortenfile|f=s', sub { push(@confdata, [ $_[1] ] ) },
+	'keepcolor|C', \$keepcolor,
 	'gzip|g', sub { $compprg = 'gzip' },
 	'bzip2|bzip|b', sub { $compprg = 'bzip2' },
 	'lzma|l', sub { $compprg = 'lzma' },
@@ -324,35 +347,31 @@ GetOptions(
 
 # Set default variables according to the options:
 
-$#ARGV >= 0 or pod2usage(2);
+scalar(@ARGV) or pod2usage(2);
 $root =~ /\/$/ or $root = "${root}/";
 $root =~ /^\// or &fatal('root-directory must be absolute (starting with /)');
 (-d $root) or &fatal("root-directory $root is no directory");
 
-sub have_prg { my($a) = @_;
+sub have_prg {
+	my($a) = @_;
 	return (system("command -v $a " . '>/dev/null 2>&1') == 0)
 }
 
 unless(defined($compprg)) {
 	if(have_prg('xz')) {
 		$compprg = 'xz'
-	}
-	elsif(have_prg('lzma')) {
+	} elsif(have_prg('lzma')) {
 		$compprg = 'lzma'
-	}
-	elsif(have_prg('bzip2')) {
+	} elsif(have_prg('bzip2')) {
 		$compprg = 'bzip2'
-	}
-	elsif(have_prg('gzip')) {
+	} elsif(have_prg('gzip')) {
 		$compprg = 'gzip'
-	}
-	else {
+	} else {
 		&fatal("cannot find working compression program")
 	}
 }
 
-sub readconf
-{
+sub readconf {
 	my @c = ();
 	for my $d (@confdata) {
 		if(ref($d) eq 'ARRAY') {
@@ -360,8 +379,7 @@ sub readconf
 			while(<>) {
 				push_confdata(\@c, $_)
 			}
-		}
-		else {
+		} else {
 			push(@c, $d);
 		}
 	}
@@ -370,7 +388,7 @@ sub readconf
 		my $negate = '';
 		if(/^\-/) {
 			$negate = 1;
-			$_ = substr($_, 1);
+			$_ = substr($_, 1)
 		}
 		s!([^\w\Q*?[]-/\E])!\\$1!g;
 		s/\?/./g;
@@ -378,21 +396,21 @@ sub readconf
 		my $result = qr/^$_$/;
 		if($negate) {
 			push(@confdata, [ $result ] )
-		}
-		else {
+		} else {
 			push(@confdata, $result)
 		}
 	}
 }
 
 my $know_conf = '';
-sub willshorten { my ($file) = @_;
+sub willshorten {
+	my ($file) = @_;
 	if($file =~ /\.(([bgx]?z.?)|(lz[a-z]*))$/i) {
 		return ''
 	}
 	unless($know_conf) {
 		$know_conf = 1;
-		&readconf
+		&readconf()
 	}
 	$file =~ s/([^:]+)\:(.*)\-\d[^\:]*\:.*/$1\/$2/;
 	my $ret = '';
@@ -401,11 +419,11 @@ sub willshorten { my ($file) = @_;
 			unless($ret) {
 				$ret = 1 if($file =~ /$c/)
 			}
-		}
-		elsif($ret) {
+		} elsif($ret) {
 			for my $neg (@$c) {
 				if($file =~ /$neg/) {
-					$ret = ''; last
+					$ret = '';
+					last
 				}
 			}
 		}
@@ -422,8 +440,7 @@ sub getdir {
 	my $a;
 	if($eix_functions ne '') {
 		$a = `. \'$eix_functions\' \&\& ReadVar x $name && printf \'\%s\' \"\$x\"`
-	}
-	else {
+	} else {
 		$a = `portageq envvar $name`;
 		chomp($a)
 	}
@@ -434,7 +451,8 @@ sub getdir {
 	return $a;
 }
 
-sub getsub { my($dir, $name) = @_;
+sub getsub {
+	my($dir, $name) = @_;
 	if($dir eq '') { return '' }
 	$name = "${dir}/${name}";
 	if(-d "$name") { return $name }
@@ -485,7 +503,8 @@ sub getinstalled {
 
 my @files = ();
 
-sub getfiles { my($dir, $sort, $all) = @_;
+sub getfiles {
+	my($dir, $sort, $all) = @_;
 	@files = ();
 	return if($dir eq '');
 	return unless(opendir(DIR, $dir));
@@ -493,8 +512,7 @@ sub getfiles { my($dir, $sort, $all) = @_;
 	while($a = readdir(DIR), defined($a)) {
 		if($all) {
 			next if(($a eq '.') || ($a eq '..'))
-		}
-		else {
+		} else {
 			next if($a =~ /^\./)
 		}
 		push(@files, $a)
@@ -508,7 +526,8 @@ sub getfiles { my($dir, $sort, $all) = @_;
 # test whether file/dir has an allowed date
 
 my $currtime = time();
-sub daterange { my($name, $older, $newer) = @_;
+sub daterange {
+	my($name, $older, $newer) = @_;
 	if(($newer eq '') && ($older eq '')) {
 		return 1
 	}
@@ -530,7 +549,8 @@ sub daterange { my($name, $older, $newer) = @_;
 
 # Deletion of dir/file:
 
-sub deldir { my($name) = @_;
+sub deldir {
+	my($name) = @_;
 	return unless(-d "$name");
 	return unless(&daterange($name, $older, ''));
 	&shprint('rm -rf', $name);
@@ -540,7 +560,8 @@ sub deldir { my($name) = @_;
 	}
 }
 
-sub delfile { my($name) = @_;
+sub delfile {
+	my($name) = @_;
 	return unless(-f "$name");
 	return unless(&daterange($name, $older, ''));
 	&shprint('rm', $name);
@@ -550,7 +571,8 @@ sub delfile { my($name) = @_;
 	}
 }
 
-sub renamefile { my($name, $newname) = @_;
+sub renamefile {
+	my($name, $newname) = @_;
 	return unless(-f "$name");
 	return unless(&daterange($name, $older, ''));
 	&shprint('mv', $name, $newname);
@@ -563,7 +585,8 @@ sub renamefile { my($name, $newname) = @_;
 
 # Test whether file appears to be an installation log:
 
-sub is_install_log { my($file) = @_;
+sub is_install_log {
+	my($file) = @_;
 	if($file =~ /\.(([bgx]?z.?)|(lz[a-z]*))$/i) {
 		return 1
 	}
@@ -582,9 +605,10 @@ sub is_install_log { my($file) = @_;
 	return $ret
 }
 
-# Shorten a logfile. Note that we should keep the flag used in is_install_log
-sub shorten_log
-{
+# Shorten a logfile.
+# We should keep at least the lines which make is_install_log() work correctly
+
+sub shorten_log {
 	my($file) = @_;
 	my $write = '';
 	unless(open(FILE, '<', $file)) {
@@ -603,8 +627,7 @@ sub shorten_log
 				next
 			}
 			$push = 1
-		}
-		elsif(/^ (\e.*)\*/) {
+		} elsif(/^ (\e.*)\*/) {
 			$push = 1
 		}
 		if(/Completed installing/) {
@@ -612,28 +635,59 @@ sub shorten_log
 			$push = 1
 		}
 		if($push) {
-			push(@A, $_)
-		}
-		else {
-			++$delete;
+			if($keepcolor) {
+				push(@A, $_)
+			} else {
+				my $strip = colorstrip($_);
+				$delete = 2 if(($delete < 2) && ($strip ne $_));
+				push(@A, $strip)
+			}
+		} else {
+			++$delete
 		}
 	}
 	close(FILE);
-	if($delete < 2) {
+	return '' if($delete < 2);
+	&shprint('logclean shorten', $file);
+	return 1 if($show);
+	return &write_to_file($file, \@A)
+}
+
+# Uncolor a logfile.
+
+sub uncolor_log {
+	return 1 if($keepcolor);
+	my($file) = @_;
+	unless(open(FILE, '<', $file)) {
+		&warning("cannot open $file for reading");
 		return ''
 	}
-	&shprint('logclean shortenlog', $file);
-	if($show) {
-		return 1;
+	my $changed = '';
+	my @A = ();
+	while(<FILE>) {
+		my $a = colorstrip($_);
+		$changed = 1 unless($changed || ($a ne $_));
+		push(@A, $a)
 	}
+	close(FILE);
+	return '' unless($changed);
+	&shprint('logclean uncolor', $file);
+	return 1 if($show);
+	return &write_to_file($file, \@A)
+}
+
+# Write array to file
+
+sub write_to_file {
+	my ($file, $array) = @_;
 	my ($atime, $mtime) = (stat($file))[8, 9];
 	unless(open(FILE, '>', $file)) {
-		printf STDERR "cannot open $file for writing";
-		return '';
+		printf(STDERR "cannot open $file for writing");
+		return ''
 	}
-	for my $i (@A) {
-		unless(print FILE $i) {
-			print STDERR "cannot write to $file";
+	for my $i (@$array) {
+		unless(print(FILE $i)) {
+			print(STDERR "cannot write to $file");
 			last
 		}
 	}
@@ -642,17 +696,17 @@ sub shorten_log
 	return 1
 }
 
+
 # The main cleanup functions:
 
-sub cleanlogs
-{
-	&getinstalled;
+sub cleanlogs {
+	&getinstalled();
 	&getfiles($logdir, '', '');
 	# Let %nam{"category/name-version"} = [filenames], deleting not installed files
 	my %nam = ();
 	my %ren = ();
 	my @compress = ();
-	foreach my $n (@files) {
+	for my $n (@files) {
 		my $name;
 		my $installed = '';
 		if($n =~ /^([^:]*):([^:]*):/) {
@@ -660,8 +714,7 @@ sub cleanlogs
 			if(exists($ipaths{$name})) {
 				$installed = 1
 			}
-		}
-		elsif($n =~ /^(\d+)\-(.+)\.log(\.(([bg]?z.?)|(lz[a-z]*)))$/i) {
+		} elsif($n =~ /^(\d+)\-(.+)\.log(\.(([bg]?z.?)|(lz[a-z]*)))$/i) {
 			my $c = $inames{$2};
 			if(defined($c)) {
 				$name = "${c}/${2}";
@@ -672,16 +725,14 @@ sub cleanlogs
 					print STDERR "Warning: conflict between ${c}/${2} and ${conf}/${2}\n";
 				}
 			}
-		}
-		else {
+		} else {
 			next
 		}
 		if($installed) {
 			my $a = $nam{$name};
 			if(defined($a)) {
 				push(@$a, $n)
-			}
-			else {
+			} else {
 				$nam{$name} = [$n]
 			}
 			next
@@ -691,8 +742,7 @@ sub cleanlogs
 		}
 		&delfile("${logdir}/$n")
 	}
-	NAMELOOP:foreach my $n (sort(keys(%nam)))
-	{
+	NAMELOOP:for my $n (sort(keys(%nam))) {
 		my $namref = $nam{$n};
 		# my @fnames = sort { $a <=> $b } (@$namref);
 		my @fnames = sort {(stat("${logdir}/${a}"))[9] <=> (stat("${logdir}/${b}"))[9]} (@$namref);
@@ -724,15 +774,17 @@ sub cleanlogs
 				push(@compress, $eraseexcept)
 			}
 		}
-		foreach my $fname (@fnames) {
+		for my $fname (@fnames) {
 			&delfile("${logdir}/${fname}")
 		}
 	}
 	# Compress the files...
-	foreach my $f (@compress) {
+	for my $f (@compress) {
 		my $file = "${logdir}/${f}";
 		if(&willshorten($f)) {
 			&shorten_log($file)
+		} else {
+			&uncolor_log($file)
 		}
 		if($compprg ne '') {
 			&shprint($compprg, $file);
@@ -743,14 +795,13 @@ sub cleanlogs
 }
 
 # Only useful if certainly no "dummy" logs can exist:
-sub cleanlogs_new_stupid
-{
-	&getinstalled;
+sub cleanlogs_new_stupid {
+	&getinstalled();
 	&getfiles($logdir, 1, '');
 	my $previous = '';
 	my $previous_mtime = '';
 	my($previous_name, $previous_debugname);
-	for(my $i = 0; $i <= $#files; ) {
+	for(my $i = 0; $i < sclar(@files); ) {
 		$_ = $files[$i++];
 		my $name = "${logdir}/$_";
 		next unless(-f $name);
@@ -775,8 +826,7 @@ sub cleanlogs_new_stupid
 			print STDERR "newer log exists: ${previous_debugname}\n" if($debug);
 			&delfile($previous_name);
 			$previous_mtime = $mtime;
-		}
-		else {
+		} else {
 			$previous_mtime = '';
 			$previous = $current
 		}
@@ -785,16 +835,15 @@ sub cleanlogs_new_stupid
 	}
 }
 
-sub cleanelogs
-{
-	&getinstalled;
+sub cleanelogs {
+	&getinstalled();
 	&getfiles($elogdir, 1, '');
-	for(my $i = 0; $i <= $#files; ) {
+	for(my $i = 0; $i < scalar(@files); ) {
 		$_ = $files[$i++];
 		my $name = "${elogdir}/$_";
 		next unless(-f $name);
 		next unless(/^([^:]*):([^:]*):/);
-		if((! (($i <= $#files) && (index($files[$i], "$1:$2:") == $[))) &&
+		if((! (($i < scalar(@files)) && (index($files[$i], "$1:$2:") == $[))) &&
 			exists($ipaths{"$1/$2"})) {
 			next unless(&daterange($name, $older, $newer));
 			my $willclean = 1;
@@ -822,12 +871,11 @@ sub cleanelogs
 	}
 }
 
-sub cleannotes
-{
-	&getinstalled;
+sub cleannotes {
+	&getinstalled();
 	my $noticedir = &getdir("PORT_ENOTICE_DIR", '/var/log/notices');
 	&getfiles($noticedir, 1, '');
-	foreach(@files) {
+	for(@files) {
 		my $name = "${noticedir}/$_";
 		next unless(-f $name);
 		if(exists($inames{$_})) {
@@ -855,19 +903,17 @@ sub cleannotes
 	}
 }
 
-sub cleanbuilds
-{
+sub cleanbuilds {
 	&getfiles($builddir, 1, 1);
-	foreach(@files) {
+	for(@files) {
 		next if($_ eq 'homedir');
 		my $name = "${builddir}/$_";
 		&deldir($name)
 	}
 }
 
-sub cleanemerge
-{
-	&getinstalled unless($ignore);
+sub cleanemerge {
+	&getinstalled() unless($ignore);
 	my $file = $root . 'var/log/emerge.log';
 	my @start =();
 	my @lines=();	# $line or [ 'category/name-version', $line ]
@@ -879,7 +925,7 @@ sub cleanemerge
 		$_ = $1;
 		if(/^Started\s+emerge/io) {
 			push(@start, $#lines);
-			if($#start >= $keep) {
+			if(scalar(@start) > $keep) {
 				shift(@start)
 			}
 		} elsif(/^\>\>\>\s+emerge\s+\([^\)]+\)\s+([^\s]+)/io) {
@@ -890,12 +936,12 @@ sub cleanemerge
 			my $s = $success{$1};
 			if(ref($s) ne '') {
 				if($s->[1] < 0) {
-					$s->[1] = $#lines;
+					$s->[1] = $#lines
 				} else {
-					$s->[2] = $#lines;
+					$s->[2] = $#lines
 				}
 			} else {
-				$success{$1} = [ -1, $#lines, -1 ];
+				$success{$1} = [ -1, $#lines, -1 ]
 			}
 		} elsif(/^\:\:\:\s+completed\s+emerge\s+\([^\)]+\)\s+([^\s]*)/io) {
 			unless($ignore) {
@@ -920,62 +966,53 @@ sub cleanemerge
 	}
 	close(FH);
 	my $firstline = $#lines + 1;
-	if($#start >= 0) {
-		$firstline = $start[0]
-	}
+	$firstline = $start[0] if(scalar(@start));
 	unless($debug) {
 		open(FH, '>', $file) or
 			die "cannot open $file for writing.\nStopped"
 	}
 	my $fail = '';
-	for(my $i = 0; $i <= $#lines; ++$i) {
+	for(my $i = 0; $i < scalar(@lines); ++$i) {
 		my $line = $lines[$i];
 		if(ref($line) ne '') {
 			if($i < $firstline) {
 				my $s = $success{$line->[0]};
 				if(ref($s) ne '') {
-					unless(($s->[0] >= 0) && (($s->[0] == $i) || ($s->[1] == $i))) {
-						next
-					}
+					next unless(($s->[0] >= 0) && (($s->[0] == $i) || ($s->[1] == $i)));
 				}
 			}
 			if($debug) {
 				print ($line->[1])
 			} else {
-				print FH ($line->[1]) or $fail = 1
+				print(FH ($line->[1]))or $fail = 1
 			}
 		} elsif($i >= $firstline) {
 			if($debug) {
-				print $line
+				print($line)
 			} else {
-				print FH $line or $fail = 1
+				print(FH $line) or $fail = 1
 			}
 		}
 	}
 	unless($debug) {
 		close(FH) or $fail = 1
 	}
-	if($fail) {
-		die "failed to write $file properly.\nStopped"
-	}
+	die("failed to write $file properly.\nStopped") if($fail)
 }
 
-sub shq ($)
-{
+sub shq {
 	my($a) = (@_);
 	$a =~ s/\'/\'\\\'\'/go; $a = "'$a'";
 	$a =~ s/(^|[^\\])\'([\da-zA-Z\_\-\,\.\:\/]*)\'/$1$2/g;
 	return(($a ne '') ? $a : "''");
 }
 
-sub shqs ($)
-{
+sub shqs {
 	return ' ' . &shq($_[0])
 }
 
-sub shdash
-{
-	my($s, $r, $t) = (shift, '', '');
+sub shdash {
+	my ($s, $r, $t) = (shift, '', '');
 	for my $i (@_) {
 		$t = 1 if($i =~ /^[-+]/o);
 		$r .= &shqs($i)
@@ -983,54 +1020,47 @@ sub shdash
 	return(($t) ? ($s . ' --' . $r) : ($s . $r))
 }
 
-sub shprint
-{
-	print &shdash(@_) . "\n"
+sub shprint {
+	print(&shdash(@_) . "\n")
 }
 
 # Execute main functions according to the argument(s):
 
 my $shortenmode = '';
+my $uncolormode = '';
 for (@ARGV) {
 	if($shortenmode) {
 		&shorten_log($_)
-	}
-	elsif(/^emerge/i) {
-		&cleanemerge
-	}
-	elsif(/^log/i) {
-		&cleanlogs
-	}
-	elsif(/^elog/i) {
-		&cleanelogs
-	}
-	elsif(/^e?not(ic)?e/i) {
-		&cleannotes
-	}
-	elsif(/^(build)|(te?mp)/i) {
-		&cleanbuilds
-	}
-	elsif(/^all/i) {
-		&cleanemerge
-		&cleanlogs
-		&cleanelogs
-		&cleannotes
-		&cleanbuilds
-	}
-	elsif(/^help/i) {
+	} elsif($uncolormode) {
+		&uncolor_log($_)
+	} elsif(/^emerge/i) {
+		&cleanemerge()
+	} elsif(/^log/i) {
+		&cleanlogs()
+	} elsif(/^elog/i) {
+		&cleanelogs()
+	} elsif(/^e?not(ic)?e/i) {
+		&cleannotes()
+	} elsif(/^(build)|(te?mp)/i) {
+		&cleanbuilds()
+	} elsif(/^all/i) {
+		&cleanemerge()
+		&cleanlogs()
+		&cleanelogs()
+		&cleannotes()
+		&cleanbuilds()
+	} elsif(/^help/i) {
 		 pod2usage(0);
-	}
-	elsif(/^man/i) {
+	} elsif(/^man/i) {
 		 pod2usage(-verbose => 2)
-	}
-	elsif(/^short/i) {
+	} elsif(/^short/i) {
 		$shortenmode = 1
-	}
-	else {
+	} elsif(/^uncol/i) {
+		$uncolormode = 1
+	} else {
 		&fatal("unknown argument $_")
 	}
 }
 
 
 __END__
-

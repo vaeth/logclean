@@ -10,6 +10,7 @@ _arguments -C -s -S -A '-*' : \
 {'(--keep)-k+','(-k)--keep='}'[Keep last ARG \(instead of 100\) portage calls in emerge.log]:portage calls to keep:(100)' \
 {'(--older)-o+','(-o)--older='}'[Only delete files older than ARG hours]:hours:(1)' \
 {'(--newer)-n+','(-n)--newer='}'[Skip scanning older than ARG hours]:hours to skip:(1)' \
+{'(--keepcolor)-C','(-C)--keepcolor'}'[Do not remove color sequences]' \
 {'(--xz)-x','(-x)--xz'}'[Use xz as compression program]' \
 {'(--lzma)-l','(-l)--lzma'}'[Use lzma as compression program]' \
 {'(--bzip2)-b','(-b)--bzip2'}'[Use bzip2 as compression program]' \
@@ -21,7 +22,7 @@ _arguments -C -s -S -A '-*' : \
 '*::logfile:_files'
 local ret=$?
 case $state in
-cmds)
+(cmds)
 	local cmds
 	cmds=(
 	'all:Do all cleanups\: emerge log elog notices builds'
@@ -32,7 +33,8 @@ cmds)
 	'notices:Remove unused files in $PORT_ENOTICE_DIR'
 	'notes:Remove unused files in $PORT_ENOTICE_DIR'
 	'builds:Remove unneeded data in $PORT_TMPDIR/portage (/var/tmp/portage)'
-	'shortenlog:shorten logfiles FILE1 FILE2 ...'
+	'shorten:shorten logfiles FILE1 FILE2 ...'
+	'uncolor:uncolor logfiles FILE1 FILE2 ...'
 	'help:print brief help'
 	'man:print verbose manpage'
 	)
