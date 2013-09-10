@@ -282,7 +282,7 @@ to the line B<-*> (which means to ignore all previous lines).
 
 =head1 VERSION
 
-Version 9.4
+Version 9.5
 
 =head1 AUTHOR
 
@@ -648,7 +648,11 @@ sub shorten_log {
 	}
 	close(FILE);
 	return '' if($delete < 2);
-	&shprint('logclean shorten', $file);
+	if($keepcolor) {
+		&shprint('logclean --keepcolor shorten', $file)
+	} else {
+		&shprint('logclean shorten', $file)
+	}
 	return 1 if($show);
 	return &write_to_file($file, \@A)
 }
