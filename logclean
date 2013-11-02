@@ -1,4 +1,4 @@
-#! /usr/bin/env perl
+#!/usr/bin/env perl
 use strict;
 use integer;
 use Pod::Usage;
@@ -282,7 +282,7 @@ to the line B<-*> (which means to ignore all previous lines).
 
 =head1 VERSION
 
-Version 9.5
+Version 9.8
 
 =head1 AUTHOR
 
