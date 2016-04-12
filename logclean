@@ -1,22 +1,16 @@
 #!/usr/bin/env perl
+require 5.012;
+package LogClean v10.0.0;
+
+use warnings;
 use strict;
 use integer;
-use Pod::Usage;
-use Getopt::Long;
+
+use File::Path v2.6.5 ();
+use Getopt::Long 2.24 ();
 use Term::ANSIColor 2.01 qw(colorstrip);
-
-sub message {
-	print(STDERR "logclean: $_[0]\n")
-}
-
-sub warning {
-	message("warning: $_[0]")
-}
-
-sub fatal {
-	message("$_[0] - Stopped");
-	exit(2)
-}
+#use Pod::Usage ();
+#use File::Which (); # not mandatory but recommended; there are fallbacks
 
 =head1 NAME
 
@@ -24,7 +18,7 @@ logclean - Remove unneeded portage log- and tempfiles
 
 =head1 SYNOPSIS
 
-B<logclean> [options] B<all>|B<emerge>|B<log>|B<elog>|B<notices>|B<builds>|B<man>|B<help>
+B<logclean> [options] B<all>|B<emerge>|B<log>|B<elog>|B<notices>|B<cache>|B<revdep>|B<builds>|B<man>|B<help>
 
 B<logclean> [options] B<shorten> I<logfile1> I<logfile2> ...
 
@@ -87,6 +81,18 @@ A file here counts as unneeded if no corresponding package seems to be
 installed, if there appears to be a newer logfile, or if the file appears
 to contain only "standard" messages.
 
+=item B<logclean> [options] B<cache>
+
+Remove all files/dirs in /var/cache/edb/dep (unless their mtime is not older
+than specified by the -o option).
+
+This directory contains only caches which are rebuild if necessary.
+
+=item B<logclean> [options] B<revdep>
+
+Remove all files/dirs in /var/cache/revdep-rebuild
+(unless their mtime is not older than specified by the -o option).
+
 =item B<logclean> [options] B<builds>
 
 Remove all unneded data in ${PORT_TMPDIR}/portage (usually /var/tmp/portage).
@@ -98,9 +104,16 @@ by the -o option).
 Do not use B<builds> (or B<all>) if portage might be running
 (in particular, do not use B<build> or B<all> in a cron job)!
 
+=item B<logclean> [options] B<cache>
+
+Remove all files/dirs in /var/cache/edb/dep (unless their mtime is not older
+than specified by the -o option).
+
+This directory contains only caches which are rebuild if necessary.
+
 =back
 
-There is a special call (not included in B<all>):
+There are two special calls (not included in B<all>):
 
 =over 8
 
@@ -280,10 +293,6 @@ the first line would have no effect since it is negated by the second line.
 As an exceptional special case, a line containing only B<-> is equivalent
 to the line B<-*> (which means to ignore all previous lines).
 
-=head1 VERSION
-
-Version 9.8
-
 =head1 AUTHOR
 
 Martin VE<auml>th E<lt>martin@mvath.deE<gt>
@@ -306,24 +315,10 @@ my @confdata = ( [ '/etc/logclean.conf' ] );
 
 # Parse Options:
 
-sub push_confdata {
-	my ($cref, $i) = @_;
-	$i =~ s/^\s+//;
-	return if(($i eq '') || ($i =~ /^\#/));
-	$i =~ s/\s+$//;
-	if($i =~ /^\-(\*(\/\*)?)?$/) {
-		@$cref = ()
-	} elsif($i =~ /^\*(\/\*)?$/) {
-		@$cref = ('*')
-	} else {
-		push(@$cref, $i)
-	}
-}
-
-$Getopt::Long::bundling = 1;
-GetOptions(
-	'help|h', sub { pod2usage(0) },
-	'man|?', sub { pod2usage(-verbose => 2) },
+Getopt::Long::Configure(qw(gnu_getopt));
+Getopt::Long::GetOptions(
+	'help|h', sub { &pod2usage(0) },
+	'man|?', sub { &pod2usage(-verbose => 2, -exit => 0) },
 	'show!', \$show,
 	'pretend!', \$show,
 	'p', \$show,
@@ -343,28 +338,57 @@ GetOptions(
 	'keep|k=i', sub { $keep = $_[1] },
 	'newer|n=i', sub { $newer = $_[1] },
 	'older|o=i', sub { $older = $_[1] }
-) or pod2usage(1);
+) or &pod2usage(2);
 
 # Set default variables according to the options:
 
-scalar(@ARGV) or pod2usage(2);
-$root =~ /\/$/ or $root = "${root}/";
-$root =~ /^\// or &fatal('root-directory must be absolute (starting with /)');
-(-d $root) or &fatal("root-directory $root is no directory");
+&pod2usage(2) unless(@ARGV);
+$root =~ /\/$/ or $root .= '/';
+&fatal('root-directory must be absolute (starting with /)')
+	unless($root =~ /^\//);
+&fatal("root-directory $root is no directory") unless(-d $root);
+
+# use File::Which module
+
+{ my $which = undef; # A closure static variable
+sub which_which {
+	return $which if(defined($which));
+	eval {
+		require File::Which
+	};
+	$which = ($@ ? '' : 1)
+}}
 
 sub have_prg {
 	my($a) = @_;
-	return (system("command -v $a " . '>/dev/null 2>&1') == 0)
+	if(&which_which()) {
+		return defined(File::Which::which($a))
+	}
+	(system("command -v $a " . '>/dev/null 2>&1') == 0)
+}
+
+sub push_confdata {
+	my ($cref, $i) = @_;
+	$i =~ s{^\s+}{};
+	return if(($i eq '') || ($i =~ m{^\#}));
+	$i =~ s{\s+$}{};
+	if($i =~ m{^\-(\*(\/\*)?)?$}) {
+		@$cref = ()
+	} elsif($i =~ m{^\*(\/\*)?$}) {
+		@$cref = ('*')
+	} else {
+		push(@$cref, $i)
+	}
 }
 
 unless(defined($compprg)) {
-	if(have_prg('xz')) {
+	if(&have_prg('xz')) {
 		$compprg = 'xz'
-	} elsif(have_prg('lzma')) {
+	} elsif(&have_prg('lzma')) {
 		$compprg = 'lzma'
-	} elsif(have_prg('bzip2')) {
+	} elsif(&have_prg('bzip2')) {
 		$compprg = 'bzip2'
-	} elsif(have_prg('gzip')) {
+	} elsif(&have_prg('gzip')) {
 		$compprg = 'gzip'
 	} else {
 		&fatal("cannot find working compression program")
@@ -463,7 +487,9 @@ my $logdir = &getdir('PORT_LOGDIR', '/var/log/portage');
 my $porttmp = &getdir('PORTAGE_TMPDIR', '/var/tmp');
 my $elogdir = &getsub($logdir, 'elog');
 my $builddir = &getsub($porttmp, 'portage');
-my $instdir = "${root}var/db/pkg";
+my $cachedir = $root . 'var/cache/edb/dep';
+my $revdepdir = $root . 'var/cache/revdep-rebuild';
+my $instdir = $root . 'var/db/pkg';
 
 # hash installed packages
 
@@ -475,27 +501,29 @@ sub getinstalled {
 	if(keys(%inames)>0) {
 		return
 	}
-	(-d "$instdir") or &fatal("cannot find directory $instdir");
-	opendir(PARENT, $instdir) or &fatal("cannot open directory $instdir");
+	(-d "$instdir") or &fatal('cannot find directory ', $instdir);
+	opendir(my $parent, $instdir) or
+		&fatal('cannot open directory ', $instdir);
 	my $a = undef;
-	while($a = readdir(PARENT), defined($a)) {
-		next if $a =~ /^\./;
+	while($a = readdir($parent), defined($a)) {
+		next if $a =~ m{^\.};
 		my $fullname = "${instdir}/$a";
 		next unless (-d $fullname);
-		if(opendir(CHILD, $fullname)) {
+		if(opendir(my $child, $fullname)) {
 			my $b = undef;
-			while($b = readdir(CHILD), defined($b)) {
-				next if $b =~ /^\./;
-				next unless (-d "${fullname}/$b");
+			while($b = readdir($child), defined($b)) {
+				next if($b =~ m{^\.});
+				next unless(-d "${fullname}/$b");
 				if(exists($inames{$b})) {
 					$double{$b} = $inames{$b}
 				}
-				$inames{$b} = $a; $ipaths{"$a/$b"} = ''
+				$inames{$b} = $a;
+				$ipaths{"$a/$b"} = ''
 			}
-			closedir(CHILD)
+			closedir($child)
 		}
 	}
-	closedir(PARENT)
+	closedir($parent)
 }
 
 
@@ -507,21 +535,20 @@ sub getfiles {
 	my($dir, $sort, $all) = @_;
 	@files = ();
 	return if($dir eq '');
-	return unless(opendir(DIR, $dir));
+	return unless(opendir(my $dh, $dir));
 	my $a = undef;
-	while($a = readdir(DIR), defined($a)) {
+	while($a = readdir($dh), defined($a)) {
 		if($all) {
 			next if(($a eq '.') || ($a eq '..'))
 		} else {
-			next if($a =~ /^\./)
+			next if($a =~ m{^\.})
 		}
 		push(@files, $a)
 	}
-	closedir(DIR);
+	closedir($dh);
 	return unless($sort);
-	@files = sort @files
+	@files = sort(@files);
 }
-
 
 # test whether file/dir has an allowed date
 
@@ -532,7 +559,7 @@ sub daterange {
 		return 1
 	}
 	my $mtime = (stat($name))[9];
-	my $diff = ($currtime-$mtime)/3600;
+	my $diff = ($currtime - $mtime)/3600;
 	if($newer ne '') {
 		if($diff > $newer) {
 			return ''
@@ -550,24 +577,41 @@ sub daterange {
 # Deletion of dir/file:
 
 sub deldir {
-	my($name) = @_;
-	return unless(-d "$name");
+	my ($name, $force) = @_;
+	unless($force // '') {
+		return unless((-d $name) && !(-l $name))
+	}
 	return unless(&daterange($name, $older, ''));
 	&shprint('rm -rf', $name);
 	return if($show);
-	if(system('rm', '-rf', '--', $name) != 0) {
-		&warning("cannot remove $name")
+	File::Path::remove_tree($name, { error => \my $err });
+	for my $diag (@$err) {
+		my ($file, $message) = %$diag;
+		&warning((($file eq '') ? "when cleaning $name: " :
+			"when unlinking $file: ") . $message)
 	}
 }
 
 sub delfile {
-	my($name) = @_;
-	return unless(-f "$name");
+	my ($name, $force) = @_;
+	unless($force // '') {
+		return unless(-f $name)
+	}
 	return unless(&daterange($name, $older, ''));
 	&shprint('rm', $name);
 	return if($show);
 	if(unlink($name) != 1) {
 		&warning("cannot unlink $name")
+	}
+}
+
+sub delany {
+	my($name) = @_;
+	return unless(&daterange($name, $older, ''));
+	if((-d $name) && !(-l $name)) {
+		&deldir($name, 1)
+	} else {
+		&delfile($name, 1)
 	}
 }
 
@@ -587,16 +631,16 @@ sub renamefile {
 
 sub is_install_log {
 	my($file) = @_;
-	if($file =~ /\.(([bgx]?z.?)|(lz[a-z]*))$/i) {
+	if($file =~ m{\.(([bgx]?z.?)|(lz[a-z]*))$}i) {
 		return 1
 	}
 	my $ret = '';
 	unless(open(FILE, '<', $file)) {
-		print STDERR "cannot read: ${file}" if($debug);
+		&debug('cannot read: ', $file) if($debug);
 		return ''
 	}
 	while(<FILE>) {
-		if(/Completed installing/) {
+		if(m{Completed installing}) {
 			$ret = 1;
 			last
 		}
@@ -609,16 +653,17 @@ sub is_install_log {
 # We should keep at least the lines which make is_install_log() work correctly
 
 sub shorten_log {
-	my($file) = @_;
+	my ($file) = @_;
 	my $write = '';
-	unless(open(FILE, '<', $file)) {
+	my $fh;
+	unless(open($fh, '<', $file)) {
 		&warning("cannot open $file for reading");
 		return ''
 	}
 	my @A = ();
 	my $delete = 0;
 	my $mode = 1;
-	while(<FILE>) {
+	while(<$fh>) {
 		my $push = '';
 		if($mode) {
 			if(/Unpacking source/) {
@@ -646,7 +691,7 @@ sub shorten_log {
 			++$delete
 		}
 	}
-	close(FILE);
+	close($fh);
 	return '' if($delete < 2);
 	if($keepcolor) {
 		&shprint('logclean --keepcolor shorten', $file)
@@ -661,19 +706,20 @@ sub shorten_log {
 
 sub uncolor_log {
 	return 1 if($keepcolor);
-	my($file) = @_;
-	unless(open(FILE, '<', $file)) {
+	my ($file) = @_;
+	my $fh;
+	unless(open($fh, '<', $file)) {
 		&warning("cannot open $file for reading");
 		return ''
 	}
 	my $changed = '';
 	my @A = ();
-	while(<FILE>) {
+	while(<$fh>) {
 		my $a = colorstrip($_);
 		$changed = 1 unless($changed || ($a ne $_));
 		push(@A, $a)
 	}
-	close(FILE);
+	close($fh);
 	return '' unless($changed);
 	&shprint('logclean uncolor', $file);
 	return 1 if($show);
@@ -685,17 +731,18 @@ sub uncolor_log {
 sub write_to_file {
 	my ($file, $array) = @_;
 	my ($atime, $mtime) = (stat($file))[8, 9];
-	unless(open(FILE, '>', $file)) {
-		printf(STDERR "cannot open $file for writing");
+	my $fh;
+	unless(open($fh, '>', $file)) {
+		&error("cannot open $file for writing");
 		return ''
 	}
 	for my $i (@$array) {
-		unless(print(FILE $i)) {
-			print(STDERR "cannot write to $file");
+		unless(print($fh $i)) {
+			&error("cannot write to $file");
 			last
 		}
 	}
-	close(FILE);
+	close($fh);
 	utime($atime, $mtime, $file);
 	return 1
 }
@@ -793,7 +840,9 @@ sub cleanlogs {
 		if($compprg ne '') {
 			&shprint($compprg, $file);
 			next if($show);
-			system($compprg, $file);
+			if(system($compprg, $file) != 0) {
+				&warning('failed: ', &shdash($compprg, $file))
+			}
 		}
 	}
 }
@@ -813,7 +862,7 @@ sub cleanlogs_new_stupid {
 		my $current = "$1/$2";
 		my $debugname = $_;
 		if(!exists($ipaths{"$current"})) {
-			print STDERR "not installed: ${debugname}\n" if($debug);
+			&debug('not installed: ', $debugname) if($debug);
 			&delfile($name);
 			next
 		}
@@ -823,11 +872,11 @@ sub cleanlogs_new_stupid {
 				$previous_mtime = (stat($previous_name))[9]
 			}
 			if($mtime < $previous_mtime) {
-				print STDERR "newer log exists: ${debugname}\n" if($debug);
+				&debug('newer log exists: ', $debugname) if($debug);
 				&delfile($name);
 				next
 			}
-			print STDERR "newer log exists: ${previous_debugname}\n" if($debug);
+			&debug('newer log exists: ', ${previous_debugname}) if($debug);
 			&delfile($previous_name);
 			$previous_mtime = $mtime;
 		} else {
@@ -842,17 +891,18 @@ sub cleanlogs_new_stupid {
 sub cleanelogs {
 	&getinstalled();
 	&getfiles($elogdir, 1, '');
-	for(my $i = 0; $i < scalar(@files); ) {
+	for(my $i = 0; $i < @files; ) {
 		$_ = $files[$i++];
 		my $name = "${elogdir}/$_";
 		next unless(-f $name);
 		next unless(/^([^:]*):([^:]*):/);
-		if((! (($i < scalar(@files)) && (index($files[$i], "$1:$2:") == $[))) &&
+		if((! (($i < @files) && (index($files[$i], "$1:$2:") == $[))) &&
 			exists($ipaths{"$1/$2"})) {
 			next unless(&daterange($name, $older, $newer));
 			my $willclean = 1;
-			next unless open(FILE, '<', $name);
-			while(<FILE>) {
+			my $fh;
+			next unless open($fh, '<', $name);
+			while(<$fh>) {
 				chomp; s/\s*$//;
 				next if($_ eq '');
 				s/^\s*//;
@@ -868,10 +918,10 @@ sub cleanelogs {
 				$willclean = '';
 				last
 			}
-			close(FILE);
+			close($fh);
 			next unless($willclean)
 		}
-		&delfile($name);
+		&delfile($name)
 	}
 }
 
@@ -885,34 +935,49 @@ sub cleannotes {
 		if(exists($inames{$_})) {
 			next unless(&daterange($name, $older, $newer));
 			my $willclean = 1;
-			next unless open(FILE, '<', $name);
-			while(<FILE>) {
-				chomp; s/\s*$//;
+			my $fh;
+			next unless open($fh, '<', $name);
+			while(<$fh>) {
+				chomp();
+				s{\s*$}{};
 				next if($_ eq '');
-				next if(/^[a-z]*:$/);
-				next if(/^info:\s*(Applying)?\s*\S*\.((diff)|(patch))(\.\S*)?(\s*\.\.\.)?$/i);
-				next if(/^info:\s*((Updating)|(Using))\s*\S*$/i);
-				next if(/^info:Running eautoreconf in /i);
-				next if(/^info:Applying various patches/i);
-				next if(/^info:Done with patching/i);
-				next if(/^info:Excluding patches/i);
-				next if(/^info:Using GNU config files from /i);
+				next if(m{^[a-z]*:$});
+				next if(m{^info:\s*(?:Applying)?\s*\S*\.(?:diff|patch)(?:\.\S*)?(?:\s*\.\.\.)?$}i);
+				next if(m{^info:\s*(?:Updating|Using)\s*\S*$}i);
+				next if(m{^info:Running eautoreconf in }i);
+				next if(m{^info:Applying various patches}i);
+				next if(m{^info:Done with patching}i);
+				next if(m{^info:Excluding patches}i);
+				next if(m{^info:Using GNU config files from }i);
 				$willclean = '';
-				last;
+				last
 			}
-			close(FILE);
-			next unless($willclean);
+			close($fh);
+			next unless($willclean)
 		}
-		&delfile($name);
+		&delfile($name)
 	}
 }
 
 sub cleanbuilds {
 	&getfiles($builddir, 1, 1);
-	for(@files) {
-		next if($_ eq 'homedir');
-		my $name = "${builddir}/$_";
-		&deldir($name)
+	for my $i (@files) {
+		next if($i eq 'homedir');
+		&deldir($builddir . '/' . $i)
+	}
+}
+
+sub cleancache {
+	&getfiles($cachedir, 1, 1);
+	for my $i (@files) {
+		&delany($cachedir . '/' . $i)
+	}
+}
+
+sub cleanrevdep {
+	&getfiles($revdepdir, 1, 1);
+	for my $i (@files) {
+		&delany($revdepdir . '/' . $i)
 	}
 }
 
@@ -922,17 +987,17 @@ sub cleanemerge {
 	my @start =();
 	my @lines=();	# $line or [ 'category/name-version', $line ]
 	my %success=();	# undef or [ completed, start1, start2 ]
-	open(FH, '<', $file) or die "cannot open $file for reading.\mStopped";
-	while(<FH>) {
-		next unless(/^\d+:\s*(.*)$/o);
+	open(my $fh, '<', $file) or &fatal("cannot open $file for reading");
+	while(<$fh>) {
+		next unless(m{^\d+:\s*(.*)$}o);
 		push(@lines, $_);
 		$_ = $1;
-		if(/^Started\s+emerge/io) {
+		if(m{^Started\s+emerge}io) {
 			push(@start, $#lines);
-			if(scalar(@start) > $keep) {
+			if($keep < @start) {
 				shift(@start)
 			}
-		} elsif(/^\>\>\>\s+emerge\s+\([^\)]+\)\s+([^\s]+)/io) {
+		} elsif(m{^\>\>\>\s+emerge\s+\([^\)]+\)\s+([^\s]+)}io) {
 			unless($ignore) {
 				next unless(exists($ipaths{$1}));
 			}
@@ -947,7 +1012,7 @@ sub cleanemerge {
 			} else {
 				$success{$1} = [ -1, $#lines, -1 ]
 			}
-		} elsif(/^\:\:\:\s+completed\s+emerge\s+\([^\)]+\)\s+([^\s]*)/io) {
+		} elsif(m{^\:\:\:\s+completed\s+emerge\s+\([^\)]+\)\s+([^\s]*)}io) {
 			unless($ignore) {
 				next unless(exists($ipaths{$1}))
 			}
@@ -961,22 +1026,22 @@ sub cleanemerge {
 			} else {
 				$success{$1} = [ $#lines, -1, -1 ]
 			}
-		} elsif(/^\>\>\>\s+unmerge\s+success:\s+([^\s]*)/io) {
+		} elsif(m{^\>\>\>\s+unmerge\s+success:\s+([^\s]*)}io) {
 			my $s = $success{1};
 			if(ref($s) ne '') {
 				$s->[0] = -1
 			}
 		}
 	}
-	close(FH);
+	close($fh);
 	my $firstline = $#lines + 1;
-	$firstline = $start[0] if(scalar(@start));
+	$firstline = $start[0] if(@start);
 	unless($debug) {
-		open(FH, '>', $file) or
+		open($fh, '>', $file) or
 			die "cannot open $file for writing.\nStopped"
 	}
 	my $fail = '';
-	for(my $i = 0; $i < scalar(@lines); ++$i) {
+	for(my $i = 0; $i < @lines; ++$i) {
 		my $line = $lines[$i];
 		if(ref($line) ne '') {
 			if($i < $firstline) {
@@ -986,46 +1051,68 @@ sub cleanemerge {
 				}
 			}
 			if($debug) {
-				print ($line->[1])
+				print($line->[1])
 			} else {
-				print(FH ($line->[1]))or $fail = 1
+				print($fh ($line->[1])) or $fail = 1
 			}
 		} elsif($i >= $firstline) {
 			if($debug) {
 				print($line)
 			} else {
-				print(FH $line) or $fail = 1
+				print($fh $line) or $fail = 1
 			}
 		}
 	}
 	unless($debug) {
-		close(FH) or $fail = 1
+		close($fh) or $fail = 1
 	}
-	die("failed to write $file properly.\nStopped") if($fail)
+	&fatal("failed to write $file properly") if($fail)
 }
 
 sub shq {
 	my($a) = (@_);
-	$a =~ s/\'/\'\\\'\'/go; $a = "'$a'";
-	$a =~ s/(^|[^\\])\'([\da-zA-Z\_\-\,\.\:\/]*)\'/$1$2/g;
-	return(($a ne '') ? $a : "''");
+	$a =~ s{\'}{\'\\\'\'}go; $a = "'$a'";
+	$a =~ s{(^|[^\\])\'([\da-zA-Z\_\-\,\.\:\/]*)\'}{$1$2}g;
+	(($a ne '') ? $a : "''")
 }
 
 sub shqs {
-	return ' ' . &shq($_[0])
+	' ' . &shq($_[0])
 }
 
 sub shdash {
 	my ($s, $r, $t) = (shift, '', '');
 	for my $i (@_) {
-		$t = 1 if($i =~ /^[-+]/o);
+		$t = 1 if($i =~ m{^[-+]}o);
 		$r .= &shqs($i)
 	}
 	return(($t) ? ($s . ' --' . $r) : ($s . $r))
 }
 
 sub shprint {
-	print(&shdash(@_) . "\n")
+	print(&shdash, "\n")
+}
+
+sub pod2usage {
+	require Pod::Usage;;
+	&Pod::Usage::pod2usage
+}
+
+sub message {
+	print(STDERR 'logclean: ', @_, "\n")
+}
+
+sub warning {
+	&message('warning: ', @_)
+}
+
+sub error {
+	&message('error: ', @_)
+}
+
+sub fatal {
+	&error;
+	exit(1)
 }
 
 # Execute main functions according to the argument(s):
@@ -1037,34 +1124,38 @@ for (@ARGV) {
 		&shorten_log($_)
 	} elsif($uncolormode) {
 		&uncolor_log($_)
-	} elsif(/^emerge/i) {
+	} elsif(m{^emerg}i) {
 		&cleanemerge()
-	} elsif(/^log/i) {
+	} elsif(m{^log}i) {
 		&cleanlogs()
-	} elsif(/^elog/i) {
+	} elsif(m{^elog}i) {
 		&cleanelogs()
-	} elsif(/^e?not(ic)?e/i) {
+	} elsif(m{^e?not(?:ic)?e}i) {
 		&cleannotes()
-	} elsif(/^(build)|(te?mp)/i) {
+	} elsif(m{^build|te?mp}i) {
 		&cleanbuilds()
-	} elsif(/^all/i) {
-		&cleanemerge()
-		&cleanlogs()
-		&cleanelogs()
-		&cleannotes()
+	} elsif(m{^cach}i) {
+		&cleancache()
+	} elsif(m{^revdep|rebuild}i) {
+		&cleanrevdep()
+	} elsif(m{^all}i) {
+		&cleanemerge();
+		&cleanlogs();
+		&cleanelogs();
+		&cleannotes();
+		&cleancache();
+		&cleanrevdep();
 		&cleanbuilds()
-	} elsif(/^help/i) {
-		 pod2usage(0);
-	} elsif(/^man/i) {
-		 pod2usage(-verbose => 2)
-	} elsif(/^short/i) {
+	} elsif(m{^help}i) {
+		 &pod2usage(0)
+	} elsif(m{^man}i) {
+		 &pod2usage(-verbose => 2, -exit => 0)
+	} elsif(m{^short}i) {
 		$shortenmode = 1
-	} elsif(/^uncol/i) {
+	} elsif(m{^uncol}i) {
 		$uncolormode = 1
 	} else {
-		&fatal("unknown argument $_")
+		&fatal('unknown argument ', $_)
 	}
 }
-
-
-__END__
+1;

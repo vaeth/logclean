@@ -25,13 +25,15 @@ case $state in
 (cmds)
 	local cmds
 	cmds=(
-	'all:Do all cleanups\: emerge log elog notices builds'
+	'all:Do all cleanups\: emerge log elog notices cache builds'
 	'emerge:Cleanup /var/log/emerge.log'
 	'log:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
 	'logs:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
 	'elog:Remove unused files in $PORT_LOGDIR/elog'
 	'notices:Remove unused files in $PORT_ENOTICE_DIR'
 	'notes:Remove unused files in $PORT_ENOTICE_DIR'
+	'cache:Remove unneeded data in /var/cache/edb/dep'
+	'revdep:Remove unneeded data in /var/cache/revdep-rebuild'
 	'builds:Remove unneeded data in $PORT_TMPDIR/portage (/var/tmp/portage)'
 	'shorten:shorten logfiles FILE1 FILE2 ...'
 	'uncolor:uncolor logfiles FILE1 FILE2 ...'
