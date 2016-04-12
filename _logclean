@@ -4,6 +4,7 @@ typeset -A opt_args
 _arguments -C -s -S -A '-*' : \
 '(* -)'{'--help','-h'}'[print a brief help]' \
 '(* -)'{'--man','-\\?'}'[show extended help as a manpage]' \
+'(* -)'{'--version','-V'}'[print version]' \
 {'(--oldformat)-O','(-O)--oldformat'}'[logfiles are in old format \<portage-2.1.1]' \
 {'(--pretend -p '{'--show)-s','-s)--show'},'(--show -s '{'--pretend)-p','-p)--pretend'}}'[only show what would be removed]' \
 {'(--root)-r+','(-r)--root='}'[Let ARG instead of / be root directory]:root directory:_files -/' \

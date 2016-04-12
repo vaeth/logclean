@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 require 5.012;
-package LogClean v10.0.0;
+package LogClean v10.0.1;
 
 use warnings;
 use strict;
@@ -142,6 +142,10 @@ Display brief help
 =item B<--man> or B<-?>
 
 Display extended help as a manpage
+
+=item B<--version> or B<-V>
+
+Output current version and exit
 
 =item B<--oldformat> or B<-O>
 
@@ -299,6 +303,10 @@ Martin VE<auml>th E<lt>martin@mvath.deE<gt>
 
 =cut
 
+# Global Variables
+
+our $VERSION;
+
 # Default for the Options:
 
 my $root = '/';
@@ -337,7 +345,8 @@ Getopt::Long::GetOptions(
 	'root|r=s', sub { $root = $_[1] },
 	'keep|k=i', sub { $keep = $_[1] },
 	'newer|n=i', sub { $newer = $_[1] },
-	'older|o=i', sub { $older = $_[1] }
+	'older|o=i', sub { $older = $_[1] },
+	'version|V', \&version
 ) or &pod2usage(2);
 
 # Set default variables according to the options:
@@ -1113,6 +1122,11 @@ sub error {
 sub fatal {
 	&error;
 	exit(1)
+}
+
+sub version {
+	print('logclean ', $VERSION, "\n");
+	exit(0)
 }
 
 # Execute main functions according to the argument(s):
