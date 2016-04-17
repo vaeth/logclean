@@ -26,7 +26,7 @@ case $state in
 (cmds)
 	local cmds
 	cmds=(
-	'all:Do all cleanups\: emerge log elog notices cache builds'
+	'all:Do all cleanups\: emerge log elog notices cache revdep builds'
 	'emerge:Cleanup /var/log/emerge.log'
 	'log:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
 	'logs:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
