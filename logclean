@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 require 5.012;
-package LogClean v11.0.0;
+package LogClean v11.0.1;
 
 use warnings;
 use strict;
@@ -1084,7 +1084,7 @@ sub shdash {
 			last
 		}
 	}
-	String::ShellQuote::shell_quote(@c, @_)
+	String::ShellQuote::shell_quote(@$c, @_)
 }
 
 sub pod2usage {
