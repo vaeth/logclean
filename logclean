@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 require 5.012;
-package LogClean v10.0.2;
+package LogClean v11.0.0;
 
 use warnings;
 use strict;
@@ -8,6 +8,7 @@ use integer;
 
 use File::Path v2.6.5 ();
 use Getopt::Long 2.24 ();
+use String::ShellQuote ();
 use Term::ANSIColor 2.01 qw(colorstrip);
 #use Pod::Usage ();
 #use File::Which (); # not mandatory but recommended; there are fallbacks
@@ -578,7 +579,7 @@ sub deldir {
 		return unless((-d $name) && !(-l $name))
 	}
 	return unless(&daterange($name, $older, ''));
-	&shprint('rm -rf', $name);
+	&shprint(['rm', '-rf'], $name);
 	return if($show);
 	File::Path::remove_tree($name, { error => \my $err });
 	for my $diag (@$err) {
@@ -691,9 +692,9 @@ sub shorten_log {
 	close($fh);
 	return '' if($delete < 2);
 	if($keepcolor) {
-		&shprint('logclean --keepcolor shorten', $file)
+		&shprint(['logclean', '--keepcolor'], 'shorten', $file)
 	} else {
-		&shprint('logclean shorten', $file)
+		&shprint('logclean', 'shorten', $file)
 	}
 	return 1 if($show);
 	&write_to_file($file, \@A)
@@ -718,7 +719,7 @@ sub uncolor_log {
 	}
 	close($fh);
 	return '' unless($changed);
-	&shprint('logclean uncolor', $file);
+	&shprint('logclean', 'uncolor', $file);
 	return 1 if($show);
 	return &write_to_file($file, \@A)
 }
@@ -1070,28 +1071,20 @@ sub cleanemerge {
 	&fatal("failed to write $file properly") if($fail)
 }
 
-sub shq {
-	my ($a) = (@_);
-	$a =~ s{\'}{\'\\\'\'}go; $a = "'$a'";
-	$a =~ s{(^|[^\\])\'([\da-zA-Z\_\-\,\.\:\/]*)\'}{$1$2}g;
-	(($a ne '') ? $a : "''")
-}
-
-sub shqs {
-	' ' . &shq($_[0])
+sub shprint {
+	print(&shdash, "\n")
 }
 
 sub shdash {
-	my ($s, $r, $t) = (shift, '', '');
+	my $c = shift();
+	$c = [$c] unless(ref($c) eq 'ARRAY');
 	for my $i (@_) {
-		$t = 1 if($i =~ m{^[-+]}o);
-		$r .= &shqs($i)
+		if($i =~ m{^[-+]}o) {
+			push(@$c, '--');
+			last
+		}
 	}
-	($t ? ($s . ' --' . $r) : ($s . $r))
-}
-
-sub shprint {
-	print(&shdash, "\n")
+	String::ShellQuote::shell_quote(@c, @_)
 }
 
 sub pod2usage {
