@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
-require 5.012;
-package LogClean v11.0.1;
+require 5.022;
+package LogClean v11.1.0;
 
 use warnings;
 use strict;
@@ -401,7 +401,7 @@ unless(defined($compprg)) {
 	} elsif(&have_prg('gzip')) {
 		$compprg = 'gzip'
 	} else {
-		&fatal("cannot find working compression program")
+		&fatal('cannot find working compression program')
 	}
 }
 
@@ -412,8 +412,8 @@ sub readconf {
 	my @c = ();
 	for my $d (@confdata) {
 		if(ref($d) eq 'ARRAY') {
-			local @ARGV = @$d; # Dirty Perl trick: Cheat <>
-			while(<>) {
+			local @ARGV = @$d;  # Dirty Perl trick: Cheat <<>>
+			while(<<>>) {
 				push_confdata(\@c, $_)
 			}
 		} else {
@@ -448,7 +448,7 @@ sub willshorten {
 	for my $c (@confdata) {
 		if(ref($c) ne 'ARRAY') {
 			unless($ret) {
-				$ret = 1 if($file =~ /$c/)
+				$ret = 1 if($file =~ m{$c})
 			}
 		} elsif($ret) {
 			for my $neg (@$c) {
@@ -470,9 +470,13 @@ sub getdir {
 	my ($name, $default) = @_;
 	my $a;
 	if($eix_functions ne '') {
-		$a = `. \'$eix_functions\' \&\& ReadVar x $name && printf \'\%s\' \"\$x\"`
+		my $source = String::ShellQuote::shell_quote('.', $eix_functions);
+		my $readvar = String::ShellQuote::shell_quote('ReadVar', 'x', $name);
+		my $printf = String::ShellQuote::shell_quote('printf', '%s');
+		$a = `$source \&\& $readvar \&\& $printf \"\$x\"`
 	} else {
-		$a = `portageq envvar $name`;
+		my $portageq = String::ShellQuote::shell_quote('portageq', 'envvar', $name);
+		$a = `$portageq`;
 		chomp($a)
 	}
 	($a ne '') or $a = $default;
