@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
-require 5.022;
-package LogClean v11.1.0;
+require 5.012;
+package LogClean v11.2.0;
 
 use warnings;
 use strict;
@@ -196,7 +196,8 @@ If you want to shorten always, use B<-S*> (must be quoted in shells!).
 
 =item B<--shortenfile=>I<file> or B<-f> I<file>
 
-Act as if the content of I<file> was added to F</etc/logclean.conf>
+Act as if the content of I<file> was added to F</etc/logclean.conf>;
+the particular filename B<-> means to use standard input.
 I<file> can thus override the defaults from F</etc/logclean.conf>,
 since later entries can override previous ones (see the description below).
 It is possible to use this option repeatedly and to combine it
@@ -412,12 +413,24 @@ sub readconf {
 	my @c = ();
 	for my $d (@confdata) {
 		if(ref($d) eq 'ARRAY') {
-			local @ARGV = @$d;  # Dirty Perl trick: Cheat <<>>
-			while(<<>>) {
+			my $file = $d->[0];
+			my ($fh, $close);
+			if($file eq '-') {
+				$fh = \*STDIN;
+				$close = ''
+			} else {
+				unless(open($fh, '<', $file)) {
+					&warning('cannot open ', $file);
+					next
+				}
+			}
+			$close = 1
+			while(<$fh>) {
 				push_confdata(\@c, $_)
 			}
+			close($fh) if($close)
 		} else {
-			push(@c, $d);
+			push(@c, $d)
 		}
 	}
 	@confdata = ();
@@ -822,7 +835,7 @@ sub cleanlogs {
 			if(defined($r)) {
 				&renamefile($fpath, $logdir . '/' . $r)
 			}
-			delete($fnames[$i]);
+			splice(@fnames, $i, 1);
 			$eraseexcept = $fname;
 			if($eraseexcept =~ m{\.log$}i) {
 				push(@compress, $eraseexcept)
