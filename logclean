@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 require 5.012;
-package LogClean v11.2.0;
+package LogClean v11.2.1;
 
 use warnings;
 use strict;
@@ -423,8 +423,8 @@ sub readconf {
 					&warning('cannot open ', $file);
 					next
 				}
+				$close = 1
 			}
-			$close = 1
 			while(<$fh>) {
 				push_confdata(\@c, $_)
 			}
