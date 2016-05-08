@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 require 5.012;
-package LogClean v11.2.1;
+package LogClean v11.2.2;
 
 use warnings;
 use strict;
@@ -1105,7 +1105,7 @@ sub shdash {
 }
 
 sub pod2usage {
-	require Pod::Usage;;
+	require Pod::Usage;
 	&Pod::Usage::pod2usage
 }
 
