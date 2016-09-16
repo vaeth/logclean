@@ -1,17 +1,21 @@
 #!/usr/bin/env perl
-require 5.012;
-package LogClean v11.2.2;
+BEGIN { require 5.008 }
+our $VERSION = 'v12.0.0';
+eval "package LogClean $VERSION" if($] ge '5.012');
 
 use warnings;
 use strict;
 use integer;
 
 use File::Path v2.6.5 ();
+use File::Spec ();
 use Getopt::Long 2.24 ();
 use String::ShellQuote ();
 use Term::ANSIColor 2.01 qw(colorstrip);
-#use Pod::Usage ();
-#use File::Which (); # not mandatory but recommended; there are fallbacks
+#use Pod::Usage ();  # only required to display help/man
+#use File::Which ();  # not mandatory but recommended; there are fallbacks
+
+=encoding UTF-8
 
 =head1 NAME
 
@@ -305,13 +309,9 @@ Martin VE<auml>th E<lt>martin@mvath.deE<gt>
 
 =cut
 
-# Global Variables
-
-our $VERSION;
-
 # Default for the Options:
 
-my $root = '/';
+my $root = File::Spec->rootdir();
 my $show = '';
 my $oldformat = '';
 my $keep = 100;
@@ -321,47 +321,18 @@ my $older = '';
 my $ignore = '';
 my $debug = '';
 my $compprg = undef;
-my @confdata = ( [ '/etc/logclean.conf' ] );
+my @confdata = ( [ File::Spec->catdir($root, 'etc', 'logclean.conf') ] );
 
-# Parse Options:
-
-Getopt::Long::Configure(qw(gnu_getopt));
-Getopt::Long::GetOptions(
-	'help|h', sub { &pod2usage(0) },
-	'man|?', sub { &pod2usage(-verbose => 2, -exit => 0) },
-	'show!', \$show,
-	'pretend!', \$show,
-	'p', \$show,
-	's', \$show,
-	'shorten|S=s', sub { &push_confdata(\@confdata, $_[1]) },
-	'shortenfile|f=s', sub { push(@confdata, [ $_[1] ] ) },
-	'keepcolor|C', \$keepcolor,
-	'gzip|g', sub { $compprg = 'gzip' },
-	'bzip2|bzip|b', sub { $compprg = 'bzip2' },
-	'lzma|l', sub { $compprg = 'lzma' },
-	'xz|x', sub { $compprg = 'xz' },
-	'compprog|c', sub { $compprg = $_[1] },
-	'ignore|i', \$ignore,
-	'debug|d|D', \$debug,
-	'oldformat|O', \$oldformat,
-	'root|r=s', sub { $root = $_[1] },
-	'keep|k=i', sub { $keep = $_[1] },
-	'newer|n=i', sub { $newer = $_[1] },
-	'older|o=i', sub { $older = $_[1] },
-	'version|V', \&version
-) or &pod2usage(2);
-
-# Set default variables according to the options:
-
-&pod2usage(2) unless(@ARGV);
-$root =~ m{\/$} or $root .= '/';
-&fatal('root-directory must be absolute (starting with /)')
-	unless($root =~ m{^\/});
-&fatal("root-directory $root is no directory") unless(-d $root);
+{
+	my $devnull = undef;
+sub devnull {
+	$devnull //= String::ShellQuote::shell_quote(File::Spec->devnull())
+}}
 
 # use File::Which module
 
-{	my $which = undef;  # A static closure
+{
+	my $which = undef;
 sub which_which {
 	return $which if(defined($which));
 	eval {
@@ -375,7 +346,12 @@ sub have_prg {
 	if(&which_which()) {
 		return defined(File::Which::which($a))
 	}
-	(system("command -v $a " . '>/dev/null 2>&1') == 0)
+	(system(String::ShellQuote::shell_quote('command', '-v', $a)
+		. ' >' . &devnull() . ' 2>&1') == 0)
+}
+
+sub is_dotfile {
+	$_[0] =~ m{^\.}
 }
 
 sub push_confdata {
@@ -406,7 +382,7 @@ unless(defined($compprg)) {
 	}
 }
 
-{	my $know_conf = '';  # A static closure
+{	my $know_conf = '';
 sub readconf {
 	return if($know_conf);
 	$know_conf = 1;
@@ -475,26 +451,39 @@ sub willshorten {
 	$ret
 }
 
+# Check whether eix is available. If yes, also export PRINT_APPEND=
+{
+	my $have_eix = undef;
+sub have_eix {
+	return $have_eix if(defined($have_eix));
+	$have_eix = &have_prg('eix');
+	$ENV{'PRINT_APPEND'} = '' if($have_eix);
+	$have_eix
+}}
+
+sub read_var {
+	my ($name) = @_;
+	return $ENV{$name} if(exists($ENV{$name}));
+	my $have_eix = &have_eix();
+	my $cmd = String::ShellQuote::shell_quote(($have_eix ?
+		('eix', '--print') : ('portageq', 'envvar')), $name)
+		. ' 2>' . &devnull();
+	my $result = `$cmd`;
+	$result = '' unless(defined($result));
+	chomp($result) unless($have_eix);
+	$result
+}
+
 # Get directory paths
 
-my $eix_functions = `command -v eix-functions.sh 2\>/dev/null`;
-chomp($eix_functions);
 sub getdir {
-	my ($name, $default) = @_;
-	my $a;
-	if($eix_functions ne '') {
-		my $source = String::ShellQuote::shell_quote('.', $eix_functions);
-		my $readvar = String::ShellQuote::shell_quote('ReadVar', 'x', $name);
-		my $printf = String::ShellQuote::shell_quote('printf', '%s');
-		$a = `$source \&\& $readvar \&\& $printf \"\$x\"`
-	} else {
-		my $portageq = String::ShellQuote::shell_quote('portageq', 'envvar', $name);
-		$a = `$portageq`;
-		chomp($a)
+	my $name = shift();
+	my $a = &read_var($name);
+	if($a eq '') {
+		return File::Spec->catdir($root, @_);
 	}
-	($a ne '') or $a = $default;
 	$a =~ s{^/*}{};
-	$a = $root . $a;
+	$a = File::Spec->catdir($root, $a);
 	((-d $a) ? $a : '')
 }
 
@@ -505,10 +494,10 @@ sub getsub {
 	((-d $name) ? $name : '')
 }
 
-{	my $logdir = undef;  # a static closure
+{
+	my $logdir = undef;
 sub getlogdir {
-	return $logdir if(defined($logdir));
-	$logdir = &getdir('PORT_LOGDIR', '/var/log/portage')
+	$logdir //= &getdir('PORT_LOGDIR', 'var', 'log', 'portage')
 }}
 
 # hash installed packages
@@ -517,29 +506,29 @@ my %inames = ();
 my %ipaths = ();
 my %double = ();
 
-{	my $done = '';  # a static closure
+{
+	my $done = '';
 sub getinstalled {
 	return if($done);
 	$done = 1;
-	my $instdir = $root . 'var/db/pkg';
+	my $instdir = File::Spec->catdir($root, 'var', 'db', 'pkg');
 	(-d $instdir) or &fatal('cannot find directory ', $instdir);
 	opendir(my $parent, $instdir) or
 		&fatal('cannot open directory ', $instdir);
 	my $a = undef;
 	while($a = readdir($parent), defined($a)) {
-		next if $a =~ m{^\.};
-		my $fullname = "${instdir}/$a";
+		next if(&is_dotfile($a));
+		my $fullname = File::Spec->catdir($instdir, $a);
 		next unless (-d $fullname);
 		if(opendir(my $child, $fullname)) {
 			my $b = undef;
 			while($b = readdir($child), defined($b)) {
-				next if($b =~ m{^\.});
-				next unless(-d "${fullname}/$b");
-				if(exists($inames{$b})) {
-					$double{$b} = $inames{$b}
-				}
+				next if(&is_dotfile($b));
+				next unless(-d File::Spec->catdir($fullname, $b));
+				$double{$b} = $inames{$b}
+					if(exists($inames{$b}));
 				$inames{$b} = $a;
-				$ipaths{"$a/$b"} = ''
+				$ipaths{File::Spec->catdir($a, $b)} = ''
 			}
 			closedir($child)
 		}
@@ -549,6 +538,9 @@ sub getinstalled {
 
 # read a directory into @files, possibly sorting it lexicographically
 
+{
+	my $curdir = undef;
+	my $updir = undef;
 sub getfiles {
 	my ($dir, $dotfiles) = @_;
 	$dotfiles = '' unless(defined($dotfiles));
@@ -556,28 +548,30 @@ sub getfiles {
 	return () if($dir eq '');
 	return () unless(opendir(my $dh, $dir));
 	my $a = undef;
-	while($a = readdir($dh), defined($a)) {
+	while(defined($a = readdir($dh))) {
 		if($dotfiles) {
-			next if(($a eq '.') || ($a eq '..'))
+			next if(($a eq ($curdir //= File::Spec->curdir())) ||
+				($a eq ($updir //= File::Spec->updir())))
 		} else {
-			next if($a =~ m{^\.})
+			next if(&is_dotfile($a))
 		}
 		push(@files, $a)
 	}
 	closedir($dh);
 	@files
-}
+}}
 
 # test whether file/dir has an allowed date
 
-my $currtime = time();
+{
+	my $currtime = undef;
 sub daterange {
 	my ($name, $older, $newer) = @_;
 	if(($newer eq '') && ($older eq '')) {
 		return 1
 	}
 	my $mtime = (stat($name))[9];
-	my $diff = ($currtime - $mtime) / 3600;
+	my $diff = (($currtime //= time()) - $mtime) / 3600;
 	if($newer ne '') {
 		return '' if($diff > $newer)
 	}
@@ -585,7 +579,7 @@ sub daterange {
 		return '' if($diff <= $older)
 	}
 	1
-}
+}}
 
 
 # Deletion of dir/file:
@@ -690,7 +684,7 @@ sub shorten_log {
 		} elsif(m{^ \e.*\*}) {
 			$push = 1
 		}
-		if(/Completed installing/) {
+		if(m{Completed installing}) {
 			$mode = '';
 			$push = 1
 		}
@@ -776,19 +770,18 @@ sub cleanlogs {
 		my $name;
 		my $installed = '';
 		if($n =~ m{^([^:]*):([^:]*):}) {
-			$name = $1 . '/' . $2;
-			if(exists($ipaths{$name})) {
-				$installed = 1
-			}
+			$name = File::Spec->catdir($1, $2);
+			$installed = 1 if(exists($ipaths{$name}))
 		} elsif($n =~ m{^(\d+)\-(.+)\.log(\.(?:(?:[bg]?z.?)|(?:lz[a-z]*)))$}i) {
 			my $c = $inames{$2};
 			if(defined($c)) {
-				$name = $c . '/' . $2;
+				$name = File::Spec->catdir($c, $2);
 				$ren{$n} = "${c}:${2}:00000000-${1}.log${3}";
 				$installed = 1;
 				if(exists($double{$2})) {
 					my $conf = $double{$2};
-					&warning("conflict between ${c}/${2} and ${conf}/${2}")
+					&warning("conflict between $name and " .
+						File::Spec->catdir($conf, $2))
 				}
 			}
 		} else {
@@ -804,14 +797,14 @@ sub cleanlogs {
 			next
 		}
 		&debug("not installed: ", $n) if($debug);
-		&delfile($logdir . '/' . $n)
+		&delfile(File::Spec->catdir($logdir, $n))
 	}
 	NAMELOOP:for my $n (sort(keys(%nam))) {
 		my $namref = $nam{$n};
 		# my @fnames = sort { $a <=> $b } (@$namref);
 		my @fnames = sort {
-				((stat($logdir . '/' . $a))[9]) <=>
-				((stat($logdir . '/' . $b))[9])
+				((stat(File::Spec->catdir($logdir, $a)))[9]) <=>
+				((stat(File::Spec->catdir($logdir, $b)))[9])
 			} (@$namref);
 		# Possibly erase one element from the list: The file to keep.
 		# Also push this file to @compress if it was not already compressed.
@@ -823,7 +816,7 @@ sub cleanlogs {
 					if($debug);
 				next
 			}
-			my $fpath = $logdir . '/' . ${fname};
+			my $fpath = File::Spec->catdir($logdir, $fname);
 			next unless(-f $fpath);
 			next NAMELOOP unless(&daterange($fpath, '', $newer));
 			unless(&is_install_log($fpath)) {
@@ -832,9 +825,7 @@ sub cleanlogs {
 				next
 			}
 			my $r = $ren{$fname};
-			if(defined($r)) {
-				&renamefile($fpath, $logdir . '/' . $r)
-			}
+			&renamefile($fpath, File::Spec->catdir($logdir, $r)) if(defined($r));
 			splice(@fnames, $i, 1);
 			$eraseexcept = $fname;
 			if($eraseexcept =~ m{\.log$}i) {
@@ -842,12 +833,12 @@ sub cleanlogs {
 			}
 		}
 		for my $fname (@fnames) {
-			&delfile($logdir . '/' . $fname)
+			&delfile(File::Spec->catdir($logdir, $fname))
 		}
 	}
 	# Compress the files...
 	for my $f (@compress) {
-		my $file = $logdir . '/' . $f;
+		my $file = File::Spec->catdir($logdir, $f);
 		if(&willshorten($f)) {
 			&shorten_log($file)
 		} else {
@@ -872,9 +863,9 @@ sub cleanlogs_new_stupid {
 	my $previous_mtime = '';
 	my ($previous_name, $previous_debugname);
 	for my $file (sort(&getfiles($logdir))) {
-		my $name = $logdir . '/' . $file;
-		$file =~ m{^([^:]*):([^:]*):} and (-f $name) or next;
-		my $current = $1 . '/' . $2;
+		my $name = File::Spec->catdir($logdir, $file);
+		next unless(($file =~ m{^([^:]*):([^:]*):}) && (-f $name));
+		my $current = File::Spec->catdir($1, $2);
 		my $debugname = $file;
 		if(!exists($ipaths{$current})) {
 			&debug('not installed: ', $debugname) if($debug);
@@ -883,9 +874,8 @@ sub cleanlogs_new_stupid {
 		}
 		if($current eq $previous) {
 			my $mtime = (stat($name))[9];
-			if($previous_mtime eq '') {
-				$previous_mtime = (stat($previous_name))[9]
-			}
+			$previous_mtime = (stat($previous_name))[9]
+				if($previous_mtime eq '');
 			if($mtime < $previous_mtime) {
 				&debug('newer log exists: ', $debugname)
 					if($debug);
@@ -912,11 +902,11 @@ sub cleanelogs {
 	my @files = sort(&getfiles($elogdir));
 	for(my $i = 0; $i < @files; ) {
 		$_ = $files[$i++];
-		my $name = $elogdir . '/' . $_;
+		my $name = File::Spec->catdir($elogdir, $_);
 		next unless(-f $name);
 		next unless(m{^([^:]*):([^:]*):});
 		if((! (($i < @files) && (index($files[$i], "$1:$2:") == $[))) &&
-			exists($ipaths{$1 . '/' . $2})) {
+			exists($ipaths{File::Spec->catdir($1, $2)})) {
 			next unless(&daterange($name, $older, $newer));
 			my $willclean = 1;
 			my $fh;
@@ -947,9 +937,9 @@ sub cleanelogs {
 
 sub cleannotes {
 	&getinstalled();
-	my $noticedir = &getdir('PORT_ENOTICE_DIR', '/var/log/notices');
+	my $noticedir = &getdir('PORT_ENOTICE_DIR', 'var', 'log', 'notices');
 	for my $file (sort(&getfiles($noticedir))) {
-		my $name = $noticedir . '/' . $file;
+		my $name = File::Spec->catdir($noticedir, $file);
 		next unless(-f $name);
 		if(exists($inames{$file})) {
 			next unless(&daterange($name, $older, $newer));
@@ -979,31 +969,31 @@ sub cleannotes {
 }
 
 sub cleanbuilds {
-	my $porttmp = &getdir('PORTAGE_TMPDIR', '/var/tmp');
+	my $porttmp = &getdir('PORTAGE_TMPDIR', 'var', 'tmp');
 	my $builddir = &getsub($porttmp, 'portage');
 	for my $i (&getfiles($builddir, 1)) {
 		next if($i eq 'homedir');
-		&deldir($builddir . '/' . $i)
+		&deldir(File::Spec->catdir($builddir, $i))
 	}
 }
 
 sub cleancache {
-	my $cachedir = $root . 'var/cache/edb/dep';
+	my $cachedir = File::Spec->catdir($root, 'var', 'cache', 'edb', 'dep');
 	for my $i (&getfiles($cachedir, 1)) {
-		&delany($cachedir . '/' . $i)
+		&delany(File::Spec->catdir($cachedir, $i))
 	}
 }
 
 sub cleanrevdep {
-	my $revdepdir = $root . 'var/cache/revdep-rebuild';
+	my $revdepdir = File::Spec->catdir($root, 'var', 'cache', 'revdep-rebuild');
 	for my $i (&getfiles($revdepdir, 1)) {
-		&delany($revdepdir . '/' . $i)
+		&delany(File::Spec->(catdir($revdepdir, $i)))
 	}
 }
 
 sub cleanemerge {
 	&getinstalled() unless($ignore);
-	my $file = $root . 'var/log/emerge.log';
+	my $file = File::Spec->catdir($root, 'var', 'log', 'emerge.log');
 	my @start =();
 	my @lines=();  # $line or [ 'category/name-version', $line ]
 	my %success=();  # undef or [ completed, start1, start2 ]
@@ -1014,9 +1004,7 @@ sub cleanemerge {
 		$_ = $1;
 		if(m{^Started\s+emerge}io) {
 			push(@start, $#lines);
-			if($keep < @start) {
-				shift(@start)
-			}
+			shift(@start) if($keep < @start)
 		} elsif(m{^\>\>\>\s+emerge\s+\([^\)]+\)\s+([^\s]+)}io) {
 			unless($ignore) {
 				next unless(exists($ipaths{$1}));
@@ -1134,6 +1122,42 @@ sub version {
 	print('logclean ', $VERSION, "\n");
 	exit(0)
 }
+
+# Parse Options:
+
+Getopt::Long::Configure(qw(gnu_getopt));
+Getopt::Long::GetOptions(
+	'help|h', sub { &pod2usage(0) },
+	'man|?', sub { &pod2usage(-verbose => 2, -exit => 0) },
+	'show!', \$show,
+	'pretend!', \$show,
+	'p', \$show,
+	's', \$show,
+	'shorten|S=s', sub { &push_confdata(\@confdata, $_[1]) },
+	'shortenfile|f=s', sub { push(@confdata, [ $_[1] ] ) },
+	'keepcolor|C', \$keepcolor,
+	'gzip|g', sub { $compprg = 'gzip' },
+	'bzip2|bzip|b', sub { $compprg = 'bzip2' },
+	'lzma|l', sub { $compprg = 'lzma' },
+	'xz|x', sub { $compprg = 'xz' },
+	'compprog|c', sub { $compprg = $_[1] },
+	'ignore|i', \$ignore,
+	'debug|d|D', \$debug,
+	'oldformat|O', \$oldformat,
+	'root|r=s', sub { $root = $_[1] },
+	'keep|k=i', sub { $keep = $_[1] },
+	'newer|n=i', sub { $newer = $_[1] },
+	'older|o=i', sub { $older = $_[1] },
+	'version|V', \&version
+) or &pod2usage(2);
+
+# Set default variables according to the options:
+
+&pod2usage(2) unless(@ARGV);
+$root =~ File::Spec->canonpath($root);
+&fatal('root-directory must be absolute')
+	unless(File::Spec->file_name_is_absolute($root));
+&fatal("root-directory $root is no directory") unless(-d $root);
 
 # Execute main functions according to the argument(s):
 
