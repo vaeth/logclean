@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
-our $VERSION = 'v12.0.0';
+our $VERSION = 'v12.0.1';
 eval "package LogClean $VERSION" if($] ge '5.012');
 
 use warnings;
@@ -14,6 +14,8 @@ use String::ShellQuote ();
 use Term::ANSIColor 2.01 qw(colorstrip);
 #use Pod::Usage ();  # only required to display help/man
 #use File::Which ();  # not mandatory but recommended; there are fallbacks
+
+my $name = 'logclean';
 
 =encoding UTF-8
 
@@ -382,7 +384,8 @@ unless(defined($compprg)) {
 	}
 }
 
-{	my $know_conf = '';
+{
+	my $know_conf = '';
 sub readconf {
 	return if($know_conf);
 	$know_conf = 1;
@@ -432,7 +435,8 @@ sub willshorten {
 	my ($file) = @_;
 	return '' if($file =~ m{\.(?:(?:[bgx]?z.?)|(?:lz[a-z]*))$}i);
 	&readconf();
-	$file =~ s{([^:]+)\:(.*)\-\d[^\:]*\:.*}{$1\/$2};
+	$file =~ m{([^:]+)\:(.*)\-\d[^\:]*\:.*};
+	$file = File::Spec->catdir($1, $2);
 	my $ret = '';
 	for my $c (@confdata) {
 		if(ref($c) ne 'ARRAY') {
@@ -462,11 +466,11 @@ sub have_eix {
 }}
 
 sub read_var {
-	my ($name) = @_;
-	return $ENV{$name} if(exists($ENV{$name}));
+	my ($varname) = @_;
+	return $ENV{$varname} if(exists($ENV{$varname}));
 	my $have_eix = &have_eix();
 	my $cmd = String::ShellQuote::shell_quote(($have_eix ?
-		('eix', '--print') : ('portageq', 'envvar')), $name)
+		('eix', '--print') : ('portageq', 'envvar')), $varname)
 		. ' 2>' . &devnull();
 	my $result = `$cmd`;
 	$result = '' unless(defined($result));
@@ -477,8 +481,8 @@ sub read_var {
 # Get directory paths
 
 sub getdir {
-	my $name = shift();
-	my $a = &read_var($name);
+	my $varname = shift();
+	my $a = &read_var($varname);
 	if($a eq '') {
 		return File::Spec->catdir($root, @_);
 	}
@@ -488,10 +492,10 @@ sub getdir {
 }
 
 sub getsub {
-	my ($dir, $name) = @_;
+	my ($dir, $subdir) = @_;
 	return '' if($dir eq '');
-	$name = $dir . '/' . $name;
-	((-d $name) ? $name : '')
+	$subdir = File::Spec->catdir($dir, $subdir);
+	((-d $subdir) ? $subdir : '')
 }
 
 {
@@ -1098,7 +1102,7 @@ sub pod2usage {
 }
 
 sub message {
-	print(STDERR 'logclean: ', @_, "\n")
+	print(STDERR $name, ': ', @_, "\n")
 }
 
 sub debug {
@@ -1119,7 +1123,7 @@ sub fatal {
 }
 
 sub version {
-	print('logclean ', $VERSION, "\n");
+	print($name, ' ', $VERSION, "\n");
 	exit(0)
 }
 
