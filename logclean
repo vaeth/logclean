@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
-our $VERSION = 'v12.0.1';
+our $VERSION = 'v12.0.2';
 eval "package LogClean $VERSION" if($] ge '5.012');
 
 use warnings;
@@ -323,7 +323,7 @@ my $older = '';
 my $ignore = '';
 my $debug = '';
 my $compprg = undef;
-my @confdata = ( [ File::Spec->catdir($root, 'etc', 'logclean.conf') ] );
+my @confdata = ( [ File::Spec->catfile($root, 'etc', 'logclean.conf') ] );
 
 {
 	my $devnull = undef;
@@ -570,11 +570,11 @@ sub getfiles {
 {
 	my $currtime = undef;
 sub daterange {
-	my ($name, $older, $newer) = @_;
+	my ($filename, $older, $newer) = @_;
 	if(($newer eq '') && ($older eq '')) {
 		return 1
 	}
-	my $mtime = (stat($name))[9];
+	my $mtime = (stat($filename))[9];
 	my $diff = (($currtime //= time()) - $mtime) / 3600;
 	if($newer ne '') {
 		return '' if($diff > $newer)
@@ -589,55 +589,54 @@ sub daterange {
 # Deletion of dir/file:
 
 sub deldir {
-	my ($name, $force) = @_;
+	my ($dirname, $force) = @_;
 	unless($force // '') {
-		return unless((-d $name) && !(-l $name))
+		return unless((-d $dirname) && !(-l $dirname))
 	}
-	return unless(&daterange($name, $older, ''));
-	&shprint(['rm', '-rf'], $name);
+	return unless(&daterange($dirname, $older, ''));
+	&shprint(['rm', '-rf'], $dirname);
 	return if($show);
-	File::Path::remove_tree($name, { error => \my $err });
+	File::Path::remove_tree($dirname, { error => \my $err });
 	for my $diag (@$err) {
 		my ($file, $message) = %$diag;
-		&warning((($file eq '') ? "when cleaning $name: " :
+		&warning((($file eq '') ? "when cleaning $dirname: " :
 			"when unlinking $file: ") . $message)
 	}
 }
 
 sub delfile {
-	my ($name, $force) = @_;
+	my ($filename, $force) = @_;
 	unless($force // '') {
-		return unless(-f $name)
+		return unless(-f $filename)
 	}
-	return unless(&daterange($name, $older, ''));
-	&shprint('rm', $name);
+	return unless(&daterange($filename, $older, ''));
+	&shprint('rm', $filename);
 	return if($show);
-	if(unlink($name) != 1) {
-		&warning("cannot unlink $name")
+	if(unlink($filename) != 1) {
+		&warning("cannot unlink $filename")
 	}
 }
 
 sub delany {
-	my ($name) = @_;
-	return unless(&daterange($name, $older, ''));
-	if((-d $name) && !(-l $name)) {
-		&deldir($name, 1)
+	my ($path) = @_;
+	return unless(&daterange($path, $older, ''));
+	if((-d $path) && !(-l $path)) {
+		&deldir($path, 1)
 	} else {
-		&delfile($name, 1)
+		&delfile($path, 1)
 	}
 }
 
 sub renamefile {
-	my ($name, $newname) = @_;
-	return unless(-f "$name");
-	return unless(&daterange($name, $older, ''));
-	&shprint('mv', $name, $newname);
+	my ($filename, $newname) = @_;
+	return unless(-f "$filename");
+	return unless(&daterange($filename, $older, ''));
+	&shprint('mv', $filename, $newname);
 	return if($show);
-	unless(rename($name, $newname)) {
-		&warning("cannot rename $name->$newname")
+	unless(rename($filename, $newname)) {
+		&warning('cannot rename ' . $filename . '->' . $newname)
 	}
 }
-
 
 # Test whether file appears to be an installation log:
 
@@ -771,20 +770,20 @@ sub cleanlogs {
 	my %ren = ();
 	my @compress = ();
 	for my $n (&getfiles($logdir)) {
-		my $name;
+		my $pkg;
 		my $installed = '';
 		if($n =~ m{^([^:]*):([^:]*):}) {
-			$name = File::Spec->catdir($1, $2);
-			$installed = 1 if(exists($ipaths{$name}))
+			$pkg = File::Spec->catdir($1, $2);
+			$installed = 1 if(exists($ipaths{$pkg}))
 		} elsif($n =~ m{^(\d+)\-(.+)\.log(\.(?:(?:[bg]?z.?)|(?:lz[a-z]*)))$}i) {
 			my $c = $inames{$2};
 			if(defined($c)) {
-				$name = File::Spec->catdir($c, $2);
+				$pkg = File::Spec->catdir($c, $2);
 				$ren{$n} = "${c}:${2}:00000000-${1}.log${3}";
 				$installed = 1;
 				if(exists($double{$2})) {
 					my $conf = $double{$2};
-					&warning("conflict between $name and " .
+					&warning("conflict between $pkg and " .
 						File::Spec->catdir($conf, $2))
 				}
 			}
@@ -792,23 +791,23 @@ sub cleanlogs {
 			next
 		}
 		if($installed) {
-			my $a = $nam{$name};
+			my $a = $nam{$pkg};
 			if(defined($a)) {
 				push(@$a, $n)
 			} else {
-				$nam{$name} = [$n]
+				$nam{$pkg} = [$n]
 			}
 			next
 		}
-		&debug("not installed: ", $n) if($debug);
-		&delfile(File::Spec->catdir($logdir, $n))
+		&debug('not installed: ', $n) if($debug);
+		&delfile(File::Spec->catfile($logdir, $n))
 	}
 	NAMELOOP:for my $n (sort(keys(%nam))) {
 		my $namref = $nam{$n};
 		# my @fnames = sort { $a <=> $b } (@$namref);
 		my @fnames = sort {
-				((stat(File::Spec->catdir($logdir, $a)))[9]) <=>
-				((stat(File::Spec->catdir($logdir, $b)))[9])
+				((stat(File::Spec->catfile($logdir, $a)))[9]) <=>
+				((stat(File::Spec->catfile($logdir, $b)))[9])
 			} (@$namref);
 		# Possibly erase one element from the list: The file to keep.
 		# Also push this file to @compress if it was not already compressed.
@@ -820,7 +819,7 @@ sub cleanlogs {
 					if($debug);
 				next
 			}
-			my $fpath = File::Spec->catdir($logdir, $fname);
+			my $fpath = File::Spec->catfile($logdir, $fname);
 			next unless(-f $fpath);
 			next NAMELOOP unless(&daterange($fpath, '', $newer));
 			unless(&is_install_log($fpath)) {
@@ -829,7 +828,7 @@ sub cleanlogs {
 				next
 			}
 			my $r = $ren{$fname};
-			&renamefile($fpath, File::Spec->catdir($logdir, $r)) if(defined($r));
+			&renamefile($fpath, File::Spec->catfile($logdir, $r)) if(defined($r));
 			splice(@fnames, $i, 1);
 			$eraseexcept = $fname;
 			if($eraseexcept =~ m{\.log$}i) {
@@ -837,12 +836,12 @@ sub cleanlogs {
 			}
 		}
 		for my $fname (@fnames) {
-			&delfile(File::Spec->catdir($logdir, $fname))
+			&delfile(File::Spec->catfile($logdir, $fname))
 		}
 	}
 	# Compress the files...
 	for my $f (@compress) {
-		my $file = File::Spec->catdir($logdir, $f);
+		my $file = File::Spec->catfile($logdir, $f);
 		if(&willshorten($f)) {
 			&shorten_log($file)
 		} else {
@@ -867,23 +866,23 @@ sub cleanlogs_new_stupid {
 	my $previous_mtime = '';
 	my ($previous_name, $previous_debugname);
 	for my $file (sort(&getfiles($logdir))) {
-		my $name = File::Spec->catdir($logdir, $file);
-		next unless(($file =~ m{^([^:]*):([^:]*):}) && (-f $name));
+		my $path = File::Spec->catfile($logdir, $file);
+		next unless(($file =~ m{^([^:]*):([^:]*):}) && (-f $path));
 		my $current = File::Spec->catdir($1, $2);
 		my $debugname = $file;
 		if(!exists($ipaths{$current})) {
 			&debug('not installed: ', $debugname) if($debug);
-			&delfile($name);
+			&delfile($path);
 			next
 		}
 		if($current eq $previous) {
-			my $mtime = (stat($name))[9];
+			my $mtime = (stat($path))[9];
 			$previous_mtime = (stat($previous_name))[9]
 				if($previous_mtime eq '');
 			if($mtime < $previous_mtime) {
 				&debug('newer log exists: ', $debugname)
 					if($debug);
-				&delfile($name);
+				&delfile($path);
 				next
 			}
 			&debug('newer log exists: ', ${previous_debugname})
@@ -894,7 +893,7 @@ sub cleanlogs_new_stupid {
 			$previous_mtime = '';
 			$previous = $current
 		}
-		$previous_name = $name;
+		$previous_name = $path;
 		$previous_debugname = $debugname
 	}
 }
@@ -906,15 +905,15 @@ sub cleanelogs {
 	my @files = sort(&getfiles($elogdir));
 	for(my $i = 0; $i < @files; ) {
 		$_ = $files[$i++];
-		my $name = File::Spec->catdir($elogdir, $_);
-		next unless(-f $name);
+		my $path = File::Spec->catfile($elogdir, $_);
+		next unless(-f $path);
 		next unless(m{^([^:]*):([^:]*):});
 		if((! (($i < @files) && (index($files[$i], "$1:$2:") == $[))) &&
 			exists($ipaths{File::Spec->catdir($1, $2)})) {
-			next unless(&daterange($name, $older, $newer));
+			next unless(&daterange($path, $older, $newer));
 			my $willclean = 1;
 			my $fh;
-			next unless open($fh, '<', $name);
+			next unless open($fh, '<', $path);
 			while(<$fh>) {
 				chomp();
 				s{\s*$}{};
@@ -935,7 +934,7 @@ sub cleanelogs {
 			close($fh);
 			next unless($willclean)
 		}
-		&delfile($name)
+		&delfile($path)
 	}
 }
 
@@ -943,13 +942,13 @@ sub cleannotes {
 	&getinstalled();
 	my $noticedir = &getdir('PORT_ENOTICE_DIR', 'var', 'log', 'notices');
 	for my $file (sort(&getfiles($noticedir))) {
-		my $name = File::Spec->catdir($noticedir, $file);
-		next unless(-f $name);
+		my $path = File::Spec->catfile($noticedir, $file);
+		next unless(-f $path);
 		if(exists($inames{$file})) {
-			next unless(&daterange($name, $older, $newer));
+			next unless(&daterange($path, $older, $newer));
 			my $willclean = 1;
 			my $fh;
-			next unless(open($fh, '<', $name));
+			next unless(open($fh, '<', $path));
 			while(<$fh>) {
 				chomp();
 				s{\s*$}{};
@@ -968,7 +967,7 @@ sub cleannotes {
 			close($fh);
 			next unless($willclean)
 		}
-		&delfile($name)
+		&delfile($path)
 	}
 }
 
@@ -997,7 +996,7 @@ sub cleanrevdep {
 
 sub cleanemerge {
 	&getinstalled() unless($ignore);
-	my $file = File::Spec->catdir($root, 'var', 'log', 'emerge.log');
+	my $file = File::Spec->catfile($root, 'var', 'log', 'emerge.log');
 	my @start =();
 	my @lines=();  # $line or [ 'category/name-version', $line ]
 	my %success=();  # undef or [ completed, start1, start2 ]
