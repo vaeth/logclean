@@ -31,8 +31,8 @@ This script is also offers option for a convenient usage from a cron job.
 
 If you have installed app-portage/eix, this script will run slightly faster.
 
-For installation, copy logclean with executable permission in your path.
-You should also copy (a possible edited) logclean.conf to /etc.
-To obtain support for zsh completion, you can copy _logclean to a
-directory of zsh's $fpath
+For installation, copy the content of bin/ with executable permission in your
+path (perhaps /usr/bin/) and the (possible edited) content of etc/ to /etc/
+To obtain support for zsh completion, you can copy the content of zsh/ to a
+directory of zsh's $fpath (perhaps /usr/share/zsh/site-functions/).
 There is also an ebuild in the mv overlay (which is available by layman).

@@ -1,7 +1,9 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
-our $VERSION = 'v12.0.3';
-eval "package LogClean $VERSION" if($] ge '5.012');
+package LogClean;
+our $VERSION = 'v12.0.4';
+eval { $VERSION = version->declare($VERSION) };
+eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
 use warnings;
 use strict;
