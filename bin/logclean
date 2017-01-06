@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v12.0.4';
+our $VERSION = 'v13.0.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -55,7 +55,7 @@ Do all of the following cleanups in this order
 
 =item B<logclean> [options] B<emerge>
 
-Remove everything from F</var/log/emerge.log> except for the latest
+Remove everything from F</var/log/emerge.log> except for the latest 5 (default)
 begin/end emerge entries of installed packages (used by qlop or genlop)
 and except for the data of the latest 100 (by default) calls of portage.
 
@@ -167,6 +167,11 @@ Show only what would be removed, do not remove anything
 =item B<--root=>I<rootdir> or B<-r> I<rootdir>
 
 Consider I<rootdir> instead of '/' as the root of all directories
+
+=item B<--times=>I<keeptimes> or B<-t> I<keeptimes>
+
+When cleaning F</var/log/emerge.log> keep emerge times of the latest
+I<keeptimes> emerges of each installed package. The default is 5.
 
 =item B<--keep=>I<keepcalls> or B<-k> I<keepcalls>
 
@@ -319,6 +324,7 @@ my $root = File::Spec->rootdir();
 my $show = '';
 my $oldformat = '';
 my $keep = 100;
+my $times = 5;
 my $keepcolor = '';
 my $newer = '';
 my $older = '';
@@ -1001,7 +1007,8 @@ sub cleanemerge {
 	my $file = File::Spec->catfile($root, 'var', 'log', 'emerge.log');
 	my @start =();
 	my @lines=();  # $line or [ 'category/name-version', $line ]
-	my %success=();  # undef or [ completed, start1, start2 ]
+	my %success=(); # undef or [ emerged, start, end, ... start-try]
+	my $maxsize = 2 * ($times + 1);
 	open(my $fh, '<', $file) or &fatal("cannot open $file for reading");
 	while(<$fh>) {
 		next unless(m{^\d+:\s*(.*)$}o);
@@ -1011,42 +1018,71 @@ sub cleanemerge {
 			push(@start, $#lines);
 			shift(@start) if($keep < @start)
 		} elsif(m{^\>\>\>\s+emerge\s+\([^\)]+\)\s+([^\s]+)}io) {
+			next unless($times > 0);
 			unless($ignore) {
 				next unless(exists($ipaths{$1}));
 			}
-			$lines[$#lines] = [$1, $lines[$#lines] ];
+			$lines[$#lines] = ['', $lines[$#lines]];
 			my $s = $success{$1};
 			if(ref($s) ne '') {
-				if($s->[1] < 0) {
-					$s->[1] = $#lines
+				my $index = @$s;
+				if(($index % 2) == 0) {  # was not completed
+					$s->[$index - 1] = $#lines
 				} else {
-					$s->[2] = $#lines
+					push(@$s, $#lines)
 				}
 			} else {
-				$success{$1} = [ -1, $#lines, -1 ]
+				$success{$1} = ['', $#lines]
 			}
 		} elsif(m{^\:\:\:\s+completed\s+emerge\s+\([^\)]+\)\s+([^\s]*)}io) {
+			next unless($times > 0);
 			unless($ignore) {
 				next unless(exists($ipaths{$1}))
 			}
-			$lines[$#lines] = [$1, $lines[$#lines] ];
+			$lines[$#lines] = ['', $lines[$#lines]];
 			my $s = $success{$1};
 			if(ref($s) ne '') {
-				$s->[0] = $#lines;
-				if($s->[2] >= 0) {
-					$s->[1] = $s->[2]
+				$s->[0] = 1;
+				my $index = @$s;
+				if(($index % 2) != 0) {  # was just completed
+					if($s->[$index - 2] < 0) {
+						$s->[$index - 1] = $#lines
+					}
+				} else {
+					if($index == $maxsize) {
+						splice(@$s, 1, 2)
+					}
+					push(@$s, $#lines)
 				}
 			} else {
-				$success{$1} = [ $#lines, -1, -1 ]
+				$success{$1} = [1, -1, $#lines]
 			}
 		} elsif(m{^\>\>\>\s+unmerge\s+success:\s+([^\s]*)}io) {
-			my $s = $success{1};
+			my $s = $success{$1};
 			if(ref($s) ne '') {
-				$s->[0] = -1
+				$s->[0] = ''
 			}
 		}
 	}
 	close($fh);
+
+	for my $s (values(%success)) {
+		next unless(ref($s) ne '');
+		if($s->[0]) {
+			my $i = @$s;
+			if(($i % 2) == 0) {
+				--$i
+			}
+			while(--$i) {
+				my $line = $s->[$i];
+				if($line >= 0) {
+					$lines[$line]->[0] = 1;
+				}
+			}
+		}
+		$s = undef
+	}
+
 	my $firstline = $#lines + 1;
 	$firstline = $start[0] if(@start);
 	unless($debug) {
@@ -1057,10 +1093,7 @@ sub cleanemerge {
 		my $line = $lines[$i];
 		if(ref($line) ne '') {
 			if($i < $firstline) {
-				my $s = $success{$line->[0]};
-				if(ref($s) ne '') {
-					next unless(($s->[0] >= 0) && (($s->[0] == $i) || ($s->[1] == $i)));
-				}
+				next unless($line->[0]);
 			}
 			if($debug) {
 				print($line->[1])
@@ -1150,6 +1183,7 @@ Getopt::Long::GetOptions(
 	'debug|d|D', \$debug,
 	'oldformat|O', \$oldformat,
 	'root|r=s', sub { $root = $_[1] },
+	'times|t=i', sub { $times = $_[1] },
 	'keep|k=i', sub { $keep = $_[1] },
 	'newer|n=i', sub { $newer = $_[1] },
 	'older|o=i', sub { $older = $_[1] },

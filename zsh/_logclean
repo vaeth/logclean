@@ -8,6 +8,7 @@ _arguments -C -s -S -A '-*' : \
 {'(--oldformat)-O','(-O)--oldformat'}'[logfiles are in old format \<portage-2.1.1]' \
 {'(--pretend -p '{'--show)-s','-s)--show'},'(--show -s '{'--pretend)-p','-p)--pretend'}}'[only show what would be removed]' \
 {'(--root)-r+','(-r)--root='}'[Let ARG instead of / be root directory]:root directory:_files -/' \
+{'(--times)-t+','(-t)--times='}'[Keep last ARG \(instead of 5\) emerge times in emerge.log]:emerge times to keep:(5)' \
 {'(--keep)-k+','(-k)--keep='}'[Keep last ARG \(instead of 100\) portage calls in emerge.log]:portage calls to keep:(100)' \
 {'(--older)-o+','(-o)--older='}'[Only delete files older than ARG hours]:hours:(1)' \
 {'(--newer)-n+','(-n)--newer='}'[Skip scanning older than ARG hours]:hours to skip:(1)' \
