@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v13.0.0';
+our $VERSION = 'v13.1.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -1006,8 +1006,8 @@ sub cleanemerge {
 	&getinstalled() unless($ignore);
 	my $file = File::Spec->catfile($root, 'var', 'log', 'emerge.log');
 	my @start =();
-	my @lines=();  # $line or [ 'category/name-version', $line ]
-	my %success=(); # undef or [ emerged, start, end, ... start-try]
+	my @lines=();    # $line or [ 'category/name-version', $line ]
+	my %success=();  # undef or [ emerged, start, end, ... start-try]
 	my $maxsize = 2 * ($times + 1);
 	open(my $fh, '<', $file) or &fatal("cannot open $file for reading");
 	while(<$fh>) {
@@ -1022,7 +1022,6 @@ sub cleanemerge {
 			unless($ignore) {
 				next unless(exists($ipaths{$1}));
 			}
-			$lines[$#lines] = ['', $lines[$#lines]];
 			my $s = $success{$1};
 			if(ref($s) ne '') {
 				my $index = @$s;
@@ -1039,7 +1038,6 @@ sub cleanemerge {
 			unless($ignore) {
 				next unless(exists($ipaths{$1}))
 			}
-			$lines[$#lines] = ['', $lines[$#lines]];
 			my $s = $success{$1};
 			if(ref($s) ne '') {
 				$s->[0] = 1;
@@ -1075,8 +1073,8 @@ sub cleanemerge {
 			}
 			while(--$i) {
 				my $line = $s->[$i];
-				if($line >= 0) {
-					$lines[$line]->[0] = 1;
+				if($line >= 0) {  # Mark line to print it always
+					$lines[$line] = [$lines[$line]]
 				}
 			}
 		}
@@ -1091,14 +1089,11 @@ sub cleanemerge {
 	my $fail = '';
 	for(my $i = 0; $i < @lines; ++$i) {
 		my $line = $lines[$i];
-		if(ref($line) ne '') {
-			if($i < $firstline) {
-				next unless($line->[0]);
-			}
+		if(ref($line) ne '') {  # Marked lines are always printed
 			if($debug) {
-				print($line->[1])
+				print($line->[0])
 			} else {
-				print($fh ($line->[1])) or $fail = 1
+				print($fh ($line->[0])) or $fail = 1
 			}
 		} elsif($i >= $firstline) {
 			if($debug) {
