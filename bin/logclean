@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v13.1.0';
+our $VERSION = 'v14.0.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -364,6 +364,20 @@ sub is_dotfile {
 	$_[0] =~ m{^\.}
 }
 
+# pushhash(\%hash, $index, $item) is like push(@$hash{$index}, $item)
+# but works also if $hash{index} does not exist yet.
+
+sub pushhash {
+	my $hash = shift();
+	my $index = shift();
+	my $a = $hash->{$index};
+	if(defined($a)) {
+		push(@$a, @_)
+	} else {
+		$hash->{$index} = [@_]
+	}
+}
+
 sub push_confdata {
 	my ($cref, $i) = @_;
 	$i =~ s{^\s+}{};
@@ -443,8 +457,16 @@ sub willshorten {
 	my ($file) = @_;
 	return '' if($file =~ m{\.(?:(?:[bgx]?z.?)|(?:lz[a-z]*))$}i);
 	&readconf();
-	$file =~ m{([^:]+)\:(.*)\-\d[^\:]*\:.*};
-	$file = File::Spec->catdir($1, $2);
+	my @files = File::Spec->splitdir($file);
+	if(scalar(@files) == 1) {
+		$file =~ m{^([^:]+)\:(.*)\-\d[^\:]*\:};
+		$file = File::Spec->catdir($1, $2);
+	} elsif(scalar(@files) == 3) {
+		$files[2] =~ m{^(.*)\-\d[^\:]*\:};
+		$file = File::Spec->catdir($files[1], $1)
+	} else {
+		$file = File::Spec->catdir('', '')
+	}
 	my $ret = '';
 	for my $c (@confdata) {
 		if(ref($c) ne 'ARRAY') {
@@ -548,7 +570,8 @@ sub getinstalled {
 	closedir($parent)
 }}
 
-# read a directory into @files, possibly sorting it lexicographically
+# read a directory. If second argument is true, also read dotfiles.
+# If second argument is 'f', return only the first file
 
 {
 	my $curdir = undef;
@@ -558,12 +581,16 @@ sub getfiles {
 	$dotfiles = '' unless(defined($dotfiles));
 	my @files = ();
 	return () if($dir eq '');
-	return () unless(opendir(my $dh, $dir));
+	return () unless((-d $dir) && opendir(my $dh, $dir));
 	my $a = undef;
 	while(defined($a = readdir($dh))) {
 		if($dotfiles) {
 			next if(($a eq ($curdir //= File::Spec->curdir())) ||
-				($a eq ($updir //= File::Spec->updir())))
+				($a eq ($updir //= File::Spec->updir())));
+			if($dotfiles eq 'f') {
+				@files = ($a);
+				last
+			}
 		} else {
 			next if(&is_dotfile($a))
 		}
@@ -622,6 +649,23 @@ sub delfile {
 	return if($show);
 	if(unlink($filename) != 1) {
 		&warning("cannot unlink $filename")
+	}
+}
+
+sub delemptydir {
+	my ($dirname) = @_;
+	return unless((-d $dirname) && !(-l $dirname));
+	&shprint('rmdir', $dirname);
+	return if($show);
+	unless(rmdir($dirname) != 1) {
+		&warning("cannot rmdir $dirname")
+	}
+}
+
+sub deldirs_ifempty {
+	for my $n (@_) {
+		next if((-l $n) || scalar(&getfiles($n, 'f')));
+		&delemptydir($n)
 	}
 }
 
@@ -767,7 +811,6 @@ sub write_to_file {
 	return 1
 }
 
-
 # The main cleanup functions:
 
 sub cleanlogs {
@@ -780,7 +823,7 @@ sub cleanlogs {
 	for my $n (&getfiles($logdir)) {
 		my $pkg;
 		my $installed = '';
-		if($n =~ m{^([^:]*):([^:]*):}) {
+		if($n =~ m{^([^:]+):([^:]+):}) {
 			$pkg = File::Spec->catdir($1, $2);
 			$installed = 1 if(exists($ipaths{$pkg}))
 		} elsif($n =~ m{^(\d+)\-(.+)\.log(\.(?:(?:[bg]?z.?)|(?:lz[a-z]*)))$}i) {
@@ -799,20 +842,35 @@ sub cleanlogs {
 			next
 		}
 		if($installed) {
-			my $a = $nam{$pkg};
-			if(defined($a)) {
-				push(@$a, $n)
-			} else {
-				$nam{$pkg} = [$n]
-			}
+			&pushhash(\%nam, $pkg, $n);
 			next
 		}
 		&debug('not installed: ', $n) if($debug);
 		&delfile(File::Spec->catfile($logdir, $n))
 	}
+	my $logbuilddir = File::Spec->catdir($logdir, 'build');
+	my %cleandirs = ();
+	for my $cat (&getfiles($logbuilddir)) {
+		my $catdir = File::Spec->catdir($logbuilddir, $cat);
+		next unless(-d $catdir);
+		$cleandirs{$catdir} = 1;
+		for my $name (&getfiles($catdir)) {
+			unless($name =~ m{^([^:]+):}) {
+				next
+			}
+			my $n = $1;
+			my $pkg = File::Spec->catfile($cat, $n);
+			my $catname = File::Spec->catfile('build', $cat, $name);
+			if(exists($ipaths{$pkg})) {
+				&pushhash(\%nam, $pkg, $catname);
+				next
+			}
+			&debug('not installed: ', $catname) if($debug);
+			&delfile(File::Spec->catfile($catdir, $name))
+		}
+	}
 	NAMELOOP:for my $n (sort(keys(%nam))) {
 		my $namref = $nam{$n};
-		# my @fnames = sort { $a <=> $b } (@$namref);
 		my @fnames = sort {
 				((stat(File::Spec->catfile($logdir, $a)))[9]) <=>
 				((stat(File::Spec->catfile($logdir, $b)))[9])
@@ -847,6 +905,8 @@ sub cleanlogs {
 			&delfile(File::Spec->catfile($logdir, $fname))
 		}
 	}
+	# Remove empty category directories
+	&deldirs_ifempty(sort(keys(%cleandirs)));
 	# Compress the files...
 	for my $f (@compress) {
 		my $file = File::Spec->catfile($logdir, $f);
@@ -906,44 +966,90 @@ sub cleanlogs_new_stupid {
 	}
 }
 
+sub willcleanelog {
+	my ($path) = @_;
+	my $fh;
+	return '' unless open($fh, '<', $path);
+	my $willclean = 1;
+	while(<$fh>) {
+		chomp();
+		s{\s*$}{};
+		next if($_ eq '');
+		s{^\s*}{};
+		next if(m{^[A-Z]*:\s\S*$}i);
+		next if(m{^\S*abling confcache}i);
+		next if(m{^\S*\s?\S*FLAGS contain\S* \S* which can break package}i);
+		next if(m{^Before you file a bug}i);
+		next if(m{^re-compile the package in question}i);
+		next if(m{^[A-Z]\S*ing });
+		next if(m{^\s*\>\>\>\s*SetUID});
+		next if(m{^\s*\.\.\.\s*$});
+		next if(m{^Byte compiling }i);
+		$willclean = '';
+		last
+	}
+	close($fh);
+	return $willclean
+}
+
 sub cleanelogs {
 	&getinstalled();
 	my $logdir = &getlogdir();
 	my $elogdir = &getsub($logdir, 'elog');
-	my @files = sort(&getfiles($elogdir));
-	for(my $i = 0; $i < @files; ) {
-		$_ = $files[$i++];
-		my $path = File::Spec->catfile($elogdir, $_);
-		next unless(-f $path);
-		next unless(m{^([^:]*):([^:]*):});
-		if((! (($i < @files) && (index($files[$i], "$1:$2:") == $[))) &&
-			exists($ipaths{File::Spec->catdir($1, $2)})) {
-			next unless(&daterange($path, $older, $newer));
-			my $willclean = 1;
-			my $fh;
-			next unless open($fh, '<', $path);
-			while(<$fh>) {
-				chomp();
-				s{\s*$}{};
-				next if($_ eq '');
-				s{^\s*}{};
-				next if(m{^[A-Z]*:\s\S*$}i);
-				next if(m{^\S*abling confcache}i);
-				next if(m{^\S*\s?\S*FLAGS contain\S* \S* which can break package}i);
-				next if(m{^Before you file a bug}i);
-				next if(m{^re-compile the package in question}i);
-				next if(m{^[A-Z]\S*ing });
-				next if(m{^\s*\>\>\>\s*SetUID});
-				next if(m{^\s*\.\.\.\s*$});
-				next if(m{^Byte compiling }i);
-				$willclean = '';
-				last
+	my %cleandirs = ();
+	# Let %nam{"category/name-version"} = [filenames], deleting not installed files
+	my %nam = ();
+	for my $i (&getfiles($elogdir)) {
+		my $path = File::Spec->catfile($elogdir, $i);
+		next if(-l $path);
+		if((-f $path) && ($i =~ m{^([^:]+):([^:]+):})) {
+			my $pkg = File::Spec->catdir($1, $2);
+			if(exists($ipaths{$pkg})) {
+				&pushhash(\%nam, $pkg, $i);
+				next
 			}
-			close($fh);
-			next unless($willclean)
+			&debug('not installed: ', $i) if($debug);
+			&delfile($path);
+			next
 		}
-		&delfile($path)
+		next unless(-d $path);
+		$cleandirs{$path} = 1;
+		for my $name (&getfiles($path)) {
+			unless($name =~ m{^([^:]+):}) {
+				next
+			}
+			my $n = $1;
+			my $pkg = File::Spec->catfile($i, $n);
+			my $catname = File::Spec->catfile($i, $name);
+			if(exists($ipaths{$pkg})) {
+				&pushhash(\%nam, $pkg, $catname);
+				next
+			}
+			&debug('not installed: ', $catname) if($debug);
+			&delfile(File::Spec->catfile($path, $name))
+		}
 	}
+	for my $n (sort(keys(%nam))) {
+		my $namref = $nam{$n};
+		my @fnames = sort {
+				((stat(File::Spec->catfile($elogdir, $a)))[9]) <=>
+				((stat(File::Spec->catfile($elogdir, $b)))[9])
+			} (@$namref);
+		for(my $i = 0; $i <= $#fnames; ++$i) {
+			my $fname = $fnames[$i];
+			my $path = File::Spec->catfile($elogdir, $fname);
+			if($i < $#fnames) {
+				&debug('later log ' . $fnames[$#fnames] .
+					' exists: ', $fname) if($debug);
+				&delfile($path);
+				next
+			}
+			next unless(&willcleanelog($path));
+			&debug('considered erasable: ', $fname) if($debug);
+			&delfile($path)
+		}
+	}
+	&deldirs_ifempty(sort(keys(%cleandirs)))
 }
 
 sub cleannotes {
