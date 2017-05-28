@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v14.0.0';
+our $VERSION = 'v14.1.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -378,6 +378,34 @@ sub pushhash {
 	}
 }
 
+# Get timestamp in filename
+
+sub get_filenamestamp {
+	$_[0] =~ m{.*:([\d\-]+)};
+	$1
+}
+
+# Sort array according to timestamp in filename.
+# First argument is path prefix (currently unused)
+
+sub sort_filenamestamp {
+	shift();
+	(sort {
+		&get_filenamestamp($a) cmp &get_filenamestamp($b)
+	} (@_));
+}
+
+# Sort array according to timestamp in filename.
+# First argument is path prefix (needed to access the file)
+
+sub sort_filestamp {
+	my $path = shift();
+	(sort {
+		((stat(File::Spec->catfile($path, $a)))[9]) <=>
+		((stat(File::Spec->catfile($path, $b)))[9])
+	} (@_));
+}
+
 sub push_confdata {
 	my ($cref, $i) = @_;
 	$i =~ s{^\s+}{};
@@ -648,7 +676,7 @@ sub delfile {
 	&shprint('rm', $filename);
 	return if($show);
 	if(unlink($filename) != 1) {
-		&warning("cannot unlink $filename")
+		&warning("cannot unlink $filename: $!")
 	}
 }
 
@@ -657,8 +685,8 @@ sub delemptydir {
 	return unless((-d $dirname) && !(-l $dirname));
 	&shprint('rmdir', $dirname);
 	return if($show);
-	unless(rmdir($dirname) != 1) {
-		&warning("cannot rmdir $dirname")
+	unless(rmdir($dirname)) {
+		&warning("cannot rmdir $dirname: $!")
 	}
 }
 
@@ -823,7 +851,7 @@ sub cleanlogs {
 	for my $n (&getfiles($logdir)) {
 		my $pkg;
 		my $installed = '';
-		if($n =~ m{^([^:]+):([^:]+):}) {
+		if($n =~ m{^([^:]+):([^:]+):\d}) {
 			$pkg = File::Spec->catdir($1, $2);
 			$installed = 1 if(exists($ipaths{$pkg}))
 		} elsif($n =~ m{^(\d+)\-(.+)\.log(\.(?:(?:[bg]?z.?)|(?:lz[a-z]*)))$}i) {
@@ -855,7 +883,7 @@ sub cleanlogs {
 		next unless(-d $catdir);
 		$cleandirs{$catdir} = 1;
 		for my $name (&getfiles($catdir)) {
-			unless($name =~ m{^([^:]+):}) {
+			unless($name =~ m{^([^:]+):\d}) {
 				next
 			}
 			my $n = $1;
@@ -871,10 +899,7 @@ sub cleanlogs {
 	}
 	NAMELOOP:for my $n (sort(keys(%nam))) {
 		my $namref = $nam{$n};
-		my @fnames = sort {
-				((stat(File::Spec->catfile($logdir, $a)))[9]) <=>
-				((stat(File::Spec->catfile($logdir, $b)))[9])
-			} (@$namref);
+		my @fnames = (&sort_filenamestamp($logdir, @$namref));
 		# Possibly erase one element from the list: The file to keep.
 		# Also push this file to @compress if it was not already compressed.
 		my $eraseexcept = undef;
@@ -935,7 +960,7 @@ sub cleanlogs_new_stupid {
 	my ($previous_name, $previous_debugname);
 	for my $file (sort(&getfiles($logdir))) {
 		my $path = File::Spec->catfile($logdir, $file);
-		next unless(($file =~ m{^([^:]*):([^:]*):}) && (-f $path));
+		next unless(($file =~ m{^([^:]*):([^:]*):\d}) && (-f $path));
 		my $current = File::Spec->catdir($1, $2);
 		my $debugname = $file;
 		if(!exists($ipaths{$current})) {
@@ -968,6 +993,7 @@ sub cleanlogs_new_stupid {
 
 sub willcleanelog {
 	my ($path) = @_;
+	return '' unless(&daterange($path, $older, $newer));
 	my $fh;
 	return '' unless open($fh, '<', $path);
 	my $willclean = 1;
@@ -1002,7 +1028,7 @@ sub cleanelogs {
 	for my $i (&getfiles($elogdir)) {
 		my $path = File::Spec->catfile($elogdir, $i);
 		next if(-l $path);
-		if((-f $path) && ($i =~ m{^([^:]+):([^:]+):})) {
+		if((-f $path) && ($i =~ m{^([^:]+):([^:]+):\d})) {
 			my $pkg = File::Spec->catdir($1, $2);
 			if(exists($ipaths{$pkg})) {
 				&pushhash(\%nam, $pkg, $i);
@@ -1015,7 +1041,7 @@ sub cleanelogs {
 		next unless(-d $path);
 		$cleandirs{$path} = 1;
 		for my $name (&getfiles($path)) {
-			unless($name =~ m{^([^:]+):}) {
+			unless($name =~ m{^([^:]+):\d}) {
 				next
 			}
 			my $n = $1;
@@ -1031,10 +1057,7 @@ sub cleanelogs {
 	}
 	for my $n (sort(keys(%nam))) {
 		my $namref = $nam{$n};
-		my @fnames = sort {
-				((stat(File::Spec->catfile($elogdir, $a)))[9]) <=>
-				((stat(File::Spec->catfile($elogdir, $b)))[9])
-			} (@$namref);
+		my @fnames = (&sort_filenamestamp($elogdir, @$namref));
 		for(my $i = 0; $i <= $#fnames; ++$i) {
 			my $fname = $fnames[$i];
 			my $path = File::Spec->catfile($elogdir, $fname);
@@ -1044,7 +1067,8 @@ sub cleanelogs {
 				&delfile($path);
 				next
 			}
-			next unless(&willcleanelog($path));
+			next unless(&daterange($path, $older, $newer) &&
+				&willcleanelog($path));
 			&debug('considered erasable: ', $fname) if($debug);
 			&delfile($path)
 		}
