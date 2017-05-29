@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v14.1.0';
+our $VERSION = 'v14.2.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -378,32 +378,30 @@ sub pushhash {
 	}
 }
 
-# Get timestamp in filename
+# Get timestamp from file name with fallback to file system.
 
 sub get_filenamestamp {
-	$_[0] =~ m{.*:([\d\-]+)};
-	$1
+	my ($path, $name) = @_;
+	if($name =~ m{.*:([\d\-]+)}) {
+		my $result = $1;
+		unless($result =~ m{00.*}) {
+			return $result  # The normal case of a valid year
+		}
+	}
+	my ($sec, $min, $hour, $day, $mon, $year) =
+		(gmtime((stat(File::Spec->catfile($path, $name)))[9]));
+	sprintf('%04d%02d%02d-%02d%02d%02d',
+		$year + 1900, $mon + 1, $day, $hour, $min, $sec)
 }
 
 # Sort array according to timestamp in filename.
-# First argument is path prefix (currently unused)
+# First argument is path prefix (needed to possibly access the file)
 
 sub sort_filenamestamp {
-	shift();
-	(sort {
-		&get_filenamestamp($a) cmp &get_filenamestamp($b)
-	} (@_));
-}
-
-# Sort array according to timestamp in filename.
-# First argument is path prefix (needed to access the file)
-
-sub sort_filestamp {
 	my $path = shift();
 	(sort {
-		((stat(File::Spec->catfile($path, $a)))[9]) <=>
-		((stat(File::Spec->catfile($path, $b)))[9])
-	} (@_));
+		&get_filenamestamp($path, $a) cmp &get_filenamestamp($path, $b)
+		} (@_));
 }
 
 sub push_confdata {
