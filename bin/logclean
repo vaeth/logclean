@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v14.2.0';
+our $VERSION = 'v15.0.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -227,27 +227,59 @@ is the line B<-> which means that all previous entries are ignored.)
 
 Do not remove the ANSI color sequences.
 
+=item B<--brotli> or B<--bro> or B<-B>
+
+Use brotli for compression (default if available).
+The default options are set to --quality 99 --window 24
+
+=item B<--zstd> or B<-z>
+
+Use zstd for compression (default if the above is not available).
+The default options are set to --rm --ultra -22.
+
 =item B<--xz> or B<-x>
 
-Use xz for compression (default if available).
-You might want to set something like XZ_OPT="--extreme -5" in the environment.
+Use xz for compression (default if the above are not available).
+The default options are set to --best --extreme.
+The environment variable XZ_OPT is unset.
 
 =item B<--lzma> or B<-l>
 
 Use lzma for compression (default if the above are not available).
+The default options are set to --best --extreme.
+The environment variable XZ_OPT is unset.
 
 =item B<--bzip2> or B<-b>
 
 Use bzip2 for compression (default if the above are not available).
+The default options are set to -9
 
 =item B<--gzip> or B<-g>
 
 Use gzip for compression (default if the above are not available).
+The default options are set to --best.
 
 =item B<--compprog=>I<program> or B<-c> I<program>
 
 Use I<program> as compression program.
 Use an empty string if you want no compression.
+When this option is used no default options are set.
+
+=item B<--compargs=>I<args> or B<-A> I<args>
+
+Use I<args> instead of default options for the compression program.
+The I<args> is a single string which is split at whitespace.
+
+=item B<--comparg=>I<args> or B<-a> I<arg>
+
+Add I<arg> as additional option to the compresssion program.
+This option can be used several times; each time a further I<arg> is added.
+
+=item B<--compprog=>I<program> or B<-c> I<program>
+
+Use I<program> as compression program.
+Use an empty string if you want no compression.
+When this option is used, no default options are set.
 
 =item B<--ignore> or B<-i>
 
@@ -330,7 +362,10 @@ my $newer = '';
 my $older = '';
 my $ignore = '';
 my $debug = '';
-my $compprg = undef;
+my $compsel = undef;
+my $compprg = '';
+my $compargs = undef;
+my @comparg = ();
 my @confdata = ( [ File::Spec->catfile($root, 'etc', 'logclean.conf') ] );
 
 {
@@ -415,20 +450,6 @@ sub push_confdata {
 		@$cref = ('*')
 	} else {
 		push(@$cref, $i)
-	}
-}
-
-unless(defined($compprg)) {
-	if(&have_prg('xz')) {
-		$compprg = 'xz'
-	} elsif(&have_prg('lzma')) {
-		$compprg = 'lzma'
-	} elsif(&have_prg('bzip2')) {
-		$compprg = 'bzip2'
-	} elsif(&have_prg('gzip')) {
-		$compprg = 'gzip'
-	} else {
-		&fatal('cannot find working compression program')
 	}
 }
 
@@ -720,7 +741,7 @@ sub renamefile {
 
 sub is_install_log {
 	my ($file) = @_;
-	if($file =~ m{\.(([bgx]?z.?)|(lz[a-z]*))$}i) {
+	if($file =~ m{\.log\..}i) {
 		return 1
 	}
 	my $ret = '';
@@ -852,11 +873,12 @@ sub cleanlogs {
 		if($n =~ m{^([^:]+):([^:]+):\d}) {
 			$pkg = File::Spec->catdir($1, $2);
 			$installed = 1 if(exists($ipaths{$pkg}))
-		} elsif($n =~ m{^(\d+)\-(.+)\.log(\.(?:(?:[bg]?z.?)|(?:lz[a-z]*)))$}i) {
+		} elsif($n =~ m{^(\d+)\-(.+)\.log(\..+)$}i) {
 			my $c = $inames{$2};
 			if(defined($c)) {
+				my $ext = $3;
 				$pkg = File::Spec->catdir($c, $2);
-				$ren{$n} = "${c}:${2}:00000000-${1}.log${3}";
+				$ren{$n} = "${c}:${2}:00000000-${1}.log$ext";
 				$installed = 1;
 				if(exists($double{$2})) {
 					my $conf = $double{$2};
@@ -939,10 +961,26 @@ sub cleanlogs {
 			&uncolor_log($file)
 		}
 		if($compprg ne '') {
-			&shprint($compprg, $file);
-			next if($show);
-			if(system($compprg, $file) != 0) {
-				&warning('failed: ', &shdash($compprg, $file))
+			my @x = ($compprg, @comparg);
+			if($compsel eq 'bro') {
+				push(@x, '--input', $file,
+					'--output', $file . '.br')
+			} elsif($file =~ m{^[-+]}o) {
+				push(@x, '--', $file)
+			} else {
+				push(@x, $file)
+			}
+			&shprint([@x]);
+			if($show) {
+				&delfile($file) if(($compsel eq 'bro') ||
+					(($compsel eq 'zstd') &&
+						!grep {$_ eq '--rm'} @comparg));
+				next
+			}
+			if(system(@x) != 0) {
+				&warning('failed: ', &shdash([@x]))
+			} else {
+				&delfile($file)
 			}
 		}
 	}
@@ -1297,11 +1335,15 @@ Getopt::Long::GetOptions(
 	'shorten|S=s', sub { &push_confdata(\@confdata, $_[1]) },
 	'shortenfile|f=s', sub { push(@confdata, [ $_[1] ] ) },
 	'keepcolor|C', \$keepcolor,
-	'gzip|g', sub { $compprg = 'gzip' },
-	'bzip2|bzip|b', sub { $compprg = 'bzip2' },
-	'lzma|l', sub { $compprg = 'lzma' },
-	'xz|x', sub { $compprg = 'xz' },
-	'compprog|c', sub { $compprg = $_[1] },
+	'gzip|g', sub { $compsel = 'gzip' },
+	'bzip2|bzip|b', sub { $compsel = 'bzip2' },
+	'lzma|l', sub { $compsel = 'lzma' },
+	'xz|x', sub { $compsel = 'xz' },
+	'brotli|bro|B', sub { $compsel = 'bro' },
+	'zstd|z', sub { $compsel = 'zstd' },
+	'compprog|c', sub { $compsel = ''; $compprg = ($_[1] // '') },
+	'comparg|a', \@comparg,
+	'compargs|A', \$compargs,
 	'ignore|i', \$ignore,
 	'debug|d|D', \$debug,
 	'oldformat|O', \$oldformat,
@@ -1320,6 +1362,42 @@ $root =~ File::Spec->canonpath($root);
 &fatal('root-directory must be absolute')
 	unless(File::Spec->file_name_is_absolute($root));
 &fatal("root-directory $root is no directory") unless(-d $root);
+
+# determine compression program and its options
+
+unless(defined($compsel)) {
+	if(&have_prg('bro')) {
+		$compsel = 'bro'
+	} elsif(&have_prg('zstd')) {
+		$compsel = 'zstd'
+	} elsif(&have_prg('xz')) {
+		$compsel = 'xz'
+	} elsif(&have_prg('lzma')) {
+		$compsel = 'lzma'
+	} elsif(&have_prg('bzip2')) {
+		$compsel = 'bzip2'
+	} elsif(&have_prg('gzip')) {
+		$compsel = 'gzip'
+	} else {
+		&warning('cannot find working compression program');
+		$compsel = $compprg = ''
+	}
+}
+delete($ENV{'XZ_OPT'}) if(exists($ENV{'XZ_OPT'}));
+if(defined($compargs)) {
+	unshift(@comparg, split(" ", $compargs))
+} elsif($compsel eq 'bro') {
+	unshift(@comparg, '--quality', '99', '--window', '24')
+} elsif($compsel eq 'zstd') {
+	unshift(@comparg, '--rm', '--ultra', '-22')
+} elsif(($compsel eq 'xz') || ($compsel eq 'lzma')) {
+	unshift(@comparg, '--best', '--extreme')
+} elsif($compsel eq 'bzip2') {
+	unshift(@comparg, '-9')
+} elsif($compsel eq 'gzip') {
+	unshift(@comparg, '--best')
+}
+$compprg = $compsel if($compsel ne '');
 
 # Execute main functions according to the argument(s):
 
