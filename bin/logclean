@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v15.0.0';
+our $VERSION = 'v15.0.1';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -235,7 +235,7 @@ The default options are set to --quality 99 --window 24
 =item B<--zstd> or B<-z>
 
 Use zstd for compression (default if the above is not available).
-The default options are set to --rm --ultra -22.
+The default options are set to --rm -T0 --ultra -22.
 
 =item B<--xz> or B<-x>
 
@@ -1389,7 +1389,7 @@ if(defined($compargs)) {
 } elsif($compsel eq 'bro') {
 	unshift(@comparg, '--quality', '99', '--window', '24')
 } elsif($compsel eq 'zstd') {
-	unshift(@comparg, '--rm', '--ultra', '-22')
+	unshift(@comparg, '--rm', '-T0' '--ultra', '-22')
 } elsif(($compsel eq 'xz') || ($compsel eq 'lzma')) {
 	unshift(@comparg, '--best', '--extreme')
 } elsif($compsel eq 'bzip2') {
