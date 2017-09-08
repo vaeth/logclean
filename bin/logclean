@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v15.0.2';
+our $VERSION = 'v16.0.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -249,10 +249,15 @@ Use lzma for compression (default if the above are not available).
 The default options are set to --best --extreme.
 The environment variable XZ_OPT is unset.
 
+=item B<--lz4> or B<-4>
+
+Use lz4 for compression (default if the above are not available).
+The default options are set to --rm -9.
+
 =item B<--bzip2> or B<-b>
 
 Use bzip2 for compression (default if the above are not available).
-The default options are set to -9
+The default options are set to -9.
 
 =item B<--gzip> or B<-g>
 
@@ -965,7 +970,7 @@ sub cleanlogs {
 			if($compsel eq 'bro') {
 				push(@x, '--input', $file,
 					'--output', $file . '.br')
-			} elsif($file =~ m{^[-+]}o) {
+			} elsif(($compsel ne 'lz4') && ($file =~ m{^[-+]}o)) {
 				push(@x, '--', $file)
 			} else {
 				push(@x, $file)
@@ -1337,6 +1342,7 @@ Getopt::Long::GetOptions(
 	'keepcolor|C', \$keepcolor,
 	'gzip|g', sub { $compsel = 'gzip' },
 	'bzip2|bzip|b', sub { $compsel = 'bzip2' },
+	'lz4|4', sub { $compsel = 'lz4' },
 	'lzma|l', sub { $compsel = 'lzma' },
 	'xz|x', sub { $compsel = 'xz' },
 	'brotli|bro|B', sub { $compsel = 'bro' },
@@ -1374,6 +1380,8 @@ unless(defined($compsel)) {
 		$compsel = 'xz'
 	} elsif(&have_prg('lzma')) {
 		$compsel = 'lzma'
+	} elsif(&have_prg('lz4')) {
+		$compsel = 'lz4'
 	} elsif(&have_prg('bzip2')) {
 		$compsel = 'bzip2'
 	} elsif(&have_prg('gzip')) {
@@ -1394,6 +1402,8 @@ if(defined($compargs)) {
 	unshift(@comparg, '--best', '--extreme')
 } elsif($compsel eq 'bzip2') {
 	unshift(@comparg, '-9')
+} elsif($compsel eq 'lz4') {
+	unshift(@comparg, '--rm', '-9')
 } elsif($compsel eq 'gzip') {
 	unshift(@comparg, '--best')
 }

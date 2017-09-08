@@ -13,13 +13,14 @@ _arguments -C -s -S : \
 {'(--older)-o+','(-o)--older='}'[only delete files older than specified hours]:hours:(1)' \
 {'(--newer)-n+','(-n)--newer='}'[skip scanning older than specified hours]:hours to skip:(1)' \
 {'(--keepcolor)-C','(-C)--keepcolor'}'[do not remove color sequences]' \
-{'(--xz --lzma -l --zstd -z --brotli --bro -B --bzip2 -b --gzip -g --compprog -c)-x','(-x --lzma -l --zstd -z --brotli --bro -B --bzip2 -b --gzip -g --compprog -c)--xz'}'[use xz as compression program]' \
-{'(--xz -x --lzma --zstd -z --brotli --bro -B --bzip2 -b --gzip -g --compprog -c)-l','(--xz -x -l --zstd -z --brotli --bro -B --bzip2 -b --gzip -g --compprog -c)--lzma'}'[use lzma as compression program]' \
-{'(--xz -x --lzma -l --zstd --brotli --bro -B --bzip2 -b --gzip -g --compprog -c)-z','(--xz -x --lzma -l -z --brotli --bro -B --bzip2 -b --gzip -g --compprog -c)--zstd'}'[use zstd as compression program]' \
-{'(--xz -x --lzma -l --zstd -z --brotli --bro --bzip2 -b --gzip -g --compprog -c)-B','(--xz -x --lzma -l --zstd -z --bro -B --bzip2 -b --gzip -g --compprog -c)--brotli','(--xz -x --lzma -l --zstd -z --brotli --bro -B --bzip2 -b --gzip -g --compprog -c)--bro'}'[use brotli as compression program]' \
-{'(--xz -x --lzma -l --zstd -z --brotli --bro -B --bzip2 --gzip -g --compprog -c)-b','(--xz -x --lzma -l --zstd -z --brotli --bro -B -b --gzip -g --compprog -c)--bzip2'}'[use bzip2 as compression program]' \
-{'(--xz -x --lzma -l --zstd -z --brotli --bro -B --bzip2 -b --gzip --compprog -c)-g','(--xz -x --lzma -l --zstd -z --brotli --bro -B --bzip2 -b --gzip -g --compprog -c)--gzip'}'[use gzip as compression program]' \
-{'(--xz -x --lzma -l --zstd -z --brotli --bro -B --bzip2 -b --gzip -g --compprog)-c+','(--xz -x --lzma -l --zstd -z --brotli --bro -B --bzip2 -b --gzip -g -c)--compprog='}'[use specified compression program]:compression-program:_command_names -e' \
+{'(--xz --lzma -l --zstd -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog -c)-x','(-x --lzma -l --zstd -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog -c)--xz'}'[use xz as compression program]' \
+{'(--xz -x --lzma --zstd -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog -c)-l','(--xz -x -l --zstd -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog -c)--lzma'}'[use lzma as compression program]' \
+{'(--xz -x --lzma -l --zstd --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog -c)-z','(--xz -x --lzma -l -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog -c)--zstd'}'[use zstd as compression program]' \
+{'(--xz -x --lzma -l --zstd -z --brotli --bro --lz4 -4 --bzip2 -b --gzip -g --compprog -c)-B','(--xz -x --lzma -l --zstd -z --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog -c)--brotli','(--xz -x --lzma -l --zstd -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog -c)--bro'}'[use brotli as compression program]' \
+{'(--xz -x --lzma -l --zstd -z --brotli --bro -B --lz4 --bzip2 -b --gzip -g --compprog -c)-4','(--xz -x --lzma -l --zstd -z --brotli --bro -B -4 --bzip2 -b --gzip -g --compprog -c)--lz4'}'[use lz4 as compression program]' \
+{'(--xz -x --lzma -l --zstd -z --brotli --bro -B --lz4 -4 --bzip2 --gzip -g --compprog -c)-b','(--xz -x --lzma -l --zstd -z --brotli --bro -B --lz4 -4 -b --gzip -g --compprog -c)--bzip2'}'[use bzip2 as compression program]' \
+{'(--xz -x --lzma -l --zstd -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip --compprog -c)-g','(--xz -x --lzma -l --zstd -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog -c)--gzip'}'[use gzip as compression program]' \
+{'(--xz -x --lzma -l --zstd -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g --compprog)-c+','(--xz -x --lzma -l --zstd -z --brotli --bro -B --lz4 -4 --bzip2 -b --gzip -g -c)--compprog='}'[use specified compression program]:compression-program:_command_names -e' \
 '*'{'-a+','--comparg='}'[add specified compression arg]:compression option:()' \
 {'(--compargs)-A+','(-A)--compargs='}'[use specified compression args as default]:default compression options:()' \
 {'(--ignore)-i','(-i)--ignore'}'[ignore installed packages for emerge.log]' \
