@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v16.0.0';
+our $VERSION = 'v17.0.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -43,7 +43,7 @@ It can also remove the tempfiles of portage.
 What should be removed must be specified in the argument.
 
 (It is possible to specify several arguments which is similar as
-calling B<logclean> repeatedly which these arguments;
+calling B<logclean> repeatedly with these arguments;
 if B<shorten> or B<uncolor> is used, it must be the last.)
 
 =over 8
@@ -65,10 +65,16 @@ Remove unneded files in ${PORT_LOGDIR} (defaults to /var/log/portage).
 A logfile counts as unneeded if no corresponding package seems to be
 installed, if there appears to be a newer installation logfile,
 or if it does not appear to be an installation logfile at all.
-Moreover, all "needed" logfiles are compressed with xz/lzma/bzip2/gzip;
+Moreover, all "needed" logfiles are compressed with some of the compression
+algorithms brotli/zstd/xz/lzma/bzip2/gzip;
 additionally, logfiles of packages specified in F</etc/logclean.conf>
 are shortened and all color sequences are removed (unless B<--keepcolor>
 is specified).
+
+Files matching ${PORT_LOGDIR}/dictionary* (case does not matter)
+are always left untouched. If they exist, they are possibly automatically
+used as dictionaries for the brotli or zstd compression algorithm,
+see options --brotli and --zstd.
 
 =item B<logclean> [options] B<elog[s]>
 
@@ -231,11 +237,18 @@ Do not remove the ANSI color sequences.
 
 Use brotli for compression (default if available).
 The default options are set to --quality 99 --window 24
+If a dictionary (I<file>) matching ${PORT_LOGDIR}/dictionary*br* exists
+(case does not matter) also the default option --custom-dictionary I<file>
+is added (the alphabetically first match being used as I<file>).
 
 =item B<--zstd> or B<-z>
 
 Use zstd for compression (default if the above is not available).
 The default options are set to --rm -T0 --ultra -22.
+If a dictionary (I<file>) matching ${PORT_LOGDIR}/dictionary
+or ${PORT_LOGDIR}/dictionary*zs* exists (case does not matter),
+also the default option -D I<file> is added (the alphabetically
+first match being used as I<file>).
 
 =item B<--xz> or B<-x>
 
@@ -586,6 +599,23 @@ sub getlogdir {
 	$logdir //= &getdir('PORT_LOGDIR', 'var', 'log', 'portage')
 }}
 
+{
+	my $know_files = '';
+	my @files = ();
+sub logdir_files {
+	return @files if($know_files);
+	$know_files = 1;
+	@files = sort(&getfiles(&getlogdir()))
+}}
+
+sub first_logdir_match {
+	my ($mask) = @_;
+	for my $n (&logdir_files()) {
+		return $n if($n =~ m{$mask})
+	}
+	undef
+}
+
 # hash installed packages
 
 my %inames = ();
@@ -651,6 +681,8 @@ sub getfiles {
 	closedir($dh);
 	@files
 }}
+
+# read a directory, hashing the content
 
 # test whether file/dir has an allowed date
 
@@ -872,7 +904,8 @@ sub cleanlogs {
 	my %nam = ();
 	my %ren = ();
 	my @compress = ();
-	for my $n (&getfiles($logdir)) {
+	for my $n (&logdir_files()) {
+		next if($n =~ m{^dictionary}i);
 		my $pkg;
 		my $installed = '';
 		if($n =~ m{^([^:]+):([^:]+):\d}) {
@@ -999,7 +1032,7 @@ sub cleanlogs_new_stupid {
 	my $previous = '';
 	my $previous_mtime = '';
 	my ($previous_name, $previous_debugname);
-	for my $file (sort(&getfiles($logdir))) {
+	for my $file (&logdir_files()) {
 		my $path = File::Spec->catfile($logdir, $file);
 		next unless(($file =~ m{^([^:]*):([^:]*):\d}) && (-f $path));
 		my $current = File::Spec->catdir($1, $2);
@@ -1395,8 +1428,12 @@ delete($ENV{'XZ_OPT'}) if(exists($ENV{'XZ_OPT'}));
 if(defined($compargs)) {
 	unshift(@comparg, split(" ", $compargs))
 } elsif($compsel eq 'bro') {
+	my $dict = &first_logdir_match(qr{^dictionary.*br}i);
+	unshift(@comparg, '--custom-dictionary', $dict) if(defined($dict));
 	unshift(@comparg, '--quality', '99', '--window', '24')
 } elsif($compsel eq 'zstd') {
+	my $dict = &first_logdir_match(qr{^dictionary(?:.*zs|$)}i);
+	unshift(@comparg, '-D', $dict) if(defined($dict));
 	unshift(@comparg, '--rm', '-T0', '--ultra', '-22')
 } elsif(($compsel eq 'xz') || ($compsel eq 'lzma')) {
 	unshift(@comparg, '--best', '--extreme')
