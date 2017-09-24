@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v17.0.0';
+our $VERSION = 'v18.0.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -233,13 +233,10 @@ is the line B<-> which means that all previous entries are ignored.)
 
 Do not remove the ANSI color sequences.
 
-=item B<--brotli> or B<--bro> or B<-B>
+=item B<--brotli> or B<-B>
 
 Use brotli for compression (default if available).
-The default options are set to --quality 99 --window 24
-If a dictionary (I<file>) matching ${PORT_LOGDIR}/dictionary*br* exists
-(case does not matter) also the default option --custom-dictionary I<file>
-is added (the alphabetically first match being used as I<file>).
+The default options are set to --rm --lgwin=24 --best.
 
 =item B<--zstd> or B<-z>
 
@@ -1000,19 +997,17 @@ sub cleanlogs {
 		}
 		if($compprg ne '') {
 			my @x = ($compprg, @comparg);
-			if($compsel eq 'bro') {
-				push(@x, '--input', $file,
-					'--output', $file . '.br')
-			} elsif(($compsel ne 'lz4') && ($file =~ m{^[-+]}o)) {
+			if(($compsel ne 'lz4') && ($file =~ m{^[-+]}o)) {
 				push(@x, '--', $file)
 			} else {
 				push(@x, $file)
 			}
 			&shprint([@x]);
 			if($show) {
-				&delfile($file) if(($compsel eq 'bro') ||
-					(($compsel eq 'zstd') &&
-						!grep {$_ eq '--rm'} @comparg));
+				&delfile($file) if((($compsel eq 'brotli') ||
+					($compsel eq 'zstd') ||
+					($compsel eq 'lz4')) &&
+					!grep {$_ eq '--rm'} @comparg);
 				next
 			}
 			if(system(@x) != 0) {
@@ -1378,7 +1373,7 @@ Getopt::Long::GetOptions(
 	'lz4|4', sub { $compsel = 'lz4' },
 	'lzma|l', sub { $compsel = 'lzma' },
 	'xz|x', sub { $compsel = 'xz' },
-	'brotli|bro|B', sub { $compsel = 'bro' },
+	'brotli|B', sub { $compsel = 'brotli' },
 	'zstd|z', sub { $compsel = 'zstd' },
 	'compprog|c', sub { $compsel = ''; $compprg = ($_[1] // '') },
 	'comparg|a', \@comparg,
@@ -1405,8 +1400,8 @@ $root =~ File::Spec->canonpath($root);
 # determine compression program and its options
 
 unless(defined($compsel)) {
-	if(&have_prg('bro')) {
-		$compsel = 'bro'
+	if(&have_prg('brotli')) {
+		$compsel = 'brotli'
 	} elsif(&have_prg('zstd')) {
 		$compsel = 'zstd'
 	} elsif(&have_prg('xz')) {
@@ -1427,10 +1422,8 @@ unless(defined($compsel)) {
 delete($ENV{'XZ_OPT'}) if(exists($ENV{'XZ_OPT'}));
 if(defined($compargs)) {
 	unshift(@comparg, split(" ", $compargs))
-} elsif($compsel eq 'bro') {
-	my $dict = &first_logdir_match(qr{^dictionary.*br}i);
-	unshift(@comparg, '--custom-dictionary', $dict) if(defined($dict));
-	unshift(@comparg, '--quality', '99', '--window', '24')
+} elsif($compsel eq 'brotli') {
+	unshift(@comparg, '--rm', '--lgwin=24', '--best')
 } elsif($compsel eq 'zstd') {
 	my $dict = &first_logdir_match(qr{^dictionary(?:.*zs|$)}i);
 	unshift(@comparg, '-D', $dict) if(defined($dict));
