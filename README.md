@@ -48,4 +48,5 @@ To obtain support for __zsh completion__, you can copy the content of `zsh/`
 to a directory of your zsh's `$fpath`
 (perhaps `/usr/share/zsh/site-functions/`).
 
-There is also an ebuild in the mv overlay (which is available over layman).
+For installation under Gentoo, there is an ebuild in the `mv` repository
+(available by `app-select/eselect-repository` or `app-portage/layman`).
