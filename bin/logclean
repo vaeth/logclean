@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v18.0.0';
+our $VERSION = 'v18.1.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -236,7 +236,7 @@ Do not remove the ANSI color sequences.
 =item B<--brotli> or B<-B>
 
 Use brotli for compression (default if available).
-The default options are set to --rm --lgwin=24 --best.
+The default options are set to -jZ.
 
 =item B<--zstd> or B<-z>
 
@@ -250,13 +250,13 @@ first match being used as I<file>).
 =item B<--xz> or B<-x>
 
 Use xz for compression (default if the above are not available).
-The default options are set to --best --extreme.
+The default options are set to -9e.
 The environment variable XZ_OPT is unset.
 
 =item B<--lzma> or B<-l>
 
 Use lzma for compression (default if the above are not available).
-The default options are set to --best --extreme.
+The default options are set to -9e.
 The environment variable XZ_OPT is unset.
 
 =item B<--lz4> or B<-4>
@@ -272,7 +272,7 @@ The default options are set to -9.
 =item B<--gzip> or B<-g>
 
 Use gzip for compression (default if the above are not available).
-The default options are set to --best.
+The default options are set to -9.
 
 =item B<--compprog=>I<program> or B<-c> I<program>
 
@@ -1423,19 +1423,19 @@ delete($ENV{'XZ_OPT'}) if(exists($ENV{'XZ_OPT'}));
 if(defined($compargs)) {
 	unshift(@comparg, split(" ", $compargs))
 } elsif($compsel eq 'brotli') {
-	unshift(@comparg, '--rm', '--lgwin=24', '--best')
+	unshift(@comparg, '-jZ',)
 } elsif($compsel eq 'zstd') {
 	my $dict = &first_logdir_match(qr{^dictionary(?:.*zs|$)}i);
 	unshift(@comparg, '-D', $dict) if(defined($dict));
 	unshift(@comparg, '--rm', '-T0', '--ultra', '-22')
 } elsif(($compsel eq 'xz') || ($compsel eq 'lzma')) {
-	unshift(@comparg, '--best', '--extreme')
+	unshift(@comparg, '-9e')
 } elsif($compsel eq 'bzip2') {
 	unshift(@comparg, '-9')
 } elsif($compsel eq 'lz4') {
 	unshift(@comparg, '--rm', '-9')
 } elsif($compsel eq 'gzip') {
-	unshift(@comparg, '--best')
+	unshift(@comparg, '-9')
 }
 $compprg = $compsel if($compsel ne '');
 
