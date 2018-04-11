@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v18.1.0';
+our $VERSION = 'v18.2.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -289,12 +289,6 @@ The I<args> is a single string which is split at whitespace.
 
 Add I<arg> as additional option to the compresssion program.
 This option can be used several times; each time a further I<arg> is added.
-
-=item B<--compprog=>I<program> or B<-c> I<program>
-
-Use I<program> as compression program.
-Use an empty string if you want no compression.
-When this option is used, no default options are set.
 
 =item B<--ignore> or B<-i>
 
@@ -1375,9 +1369,9 @@ Getopt::Long::GetOptions(
 	'xz|x', sub { $compsel = 'xz' },
 	'brotli|B', sub { $compsel = 'brotli' },
 	'zstd|z', sub { $compsel = 'zstd' },
-	'compprog|c', sub { $compsel = ''; $compprg = ($_[1] // '') },
-	'comparg|a', \@comparg,
-	'compargs|A', \$compargs,
+	'compprog|c=s', sub { $compsel = ''; $compprg = ($_[1] // '') },
+	'comparg|a=s', \@comparg,
+	'compargs|A=s', \$compargs,
 	'ignore|i', \$ignore,
 	'debug|d|D', \$debug,
 	'oldformat|O', \$oldformat,
