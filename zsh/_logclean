@@ -34,9 +34,9 @@ case $state in
 	cmds=(
 	'all:Do all cleanups\: emerge log elog notices cache revdep builds'
 	'emerge:Cleanup /var/log/emerge.log'
-	'log:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
-	'logs:Remove unused files in $PORT_LOGDIR (/var/log/portage)'
-	'elog:Remove unused files in $PORT_LOGDIR/elog'
+	'log:Remove unused files in $PORTAGE_LOGDIR (/var/log/portage)'
+	'logs:Remove unused files in $PORTAGE_LOGDIR (/var/log/portage)'
+	'elog:Remove unused files in $PORTAGE_LOGDIR/elog'
 	'notices:Remove unused files in $PORT_ENOTICE_DIR'
 	'notes:Remove unused files in $PORT_ENOTICE_DIR'
 	'cache:Remove unneeded data in /var/cache/edb/dep'

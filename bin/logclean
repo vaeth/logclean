@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v18.2.0';
+our $VERSION = 'v18.3.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -61,7 +61,7 @@ and except for the data of the latest 100 (by default) calls of portage.
 
 =item B<logclean> [options] B<log[s]>
 
-Remove unneded files in ${PORT_LOGDIR} (defaults to /var/log/portage).
+Remove unneded files in ${PORTAGE_LOGDIR} (defaults to /var/log/portage).
 A logfile counts as unneeded if no corresponding package seems to be
 installed, if there appears to be a newer installation logfile,
 or if it does not appear to be an installation logfile at all.
@@ -71,14 +71,14 @@ additionally, logfiles of packages specified in F</etc/logclean.conf>
 are shortened and all color sequences are removed (unless B<--keepcolor>
 is specified).
 
-Files matching ${PORT_LOGDIR}/dictionary* (case does not matter)
+Files matching ${PORTAGE_LOGDIR}/dictionary* (case does not matter)
 are always left untouched. If they exist, they are possibly automatically
 used as dictionaries for the brotli or zstd compression algorithm,
 see options --brotli and --zstd.
 
 =item B<logclean> [options] B<elog[s]>
 
-Remove unneded files in ${PORT_LOGDIR}/elog
+Remove unneded files in ${PORTAGE_LOGDIR}/elog
 
 A file here counts as unneeded if no corresponding package seems to be
 installed, if there appears to be a newer logfile, or if the file appears
@@ -242,8 +242,8 @@ The default options are set to -jZ.
 
 Use zstd for compression (default if the above is not available).
 The default options are set to --rm -T0 --ultra -22.
-If a dictionary (I<file>) matching ${PORT_LOGDIR}/dictionary
-or ${PORT_LOGDIR}/dictionary*zs* exists (case does not matter),
+If a dictionary (I<file>) matching ${PORTAGE_LOGDIR}/dictionary
+or ${PORTAGE_LOGDIR}/dictionary*zs* exists (case does not matter),
 also the default option -D I<file> is added (the alphabetically
 first match being used as I<file>).
 
@@ -568,9 +568,20 @@ sub read_var {
 
 sub getdir {
 	my $varname = shift();
+	my $altvarname = shift();
 	my $a = &read_var($varname);
+	my $b = '';
+	if($altvarname ne '') {
+		$b = &read_var($altvarname);
+		if($b ne '') {
+			&warning("You should rename $altvarname to $varname")
+		}
+	}
 	if($a eq '') {
-		return File::Spec->catdir($root, @_);
+		if ($b eq '') {
+			return File::Spec->catdir($root, @_)
+		}
+		$a = $b
 	}
 	$a =~ s{^/*}{};
 	$a = File::Spec->catdir($root, $a);
@@ -587,7 +598,7 @@ sub getsub {
 {
 	my $logdir = undef;
 sub getlogdir {
-	$logdir //= &getdir('PORT_LOGDIR', 'var', 'log', 'portage')
+	$logdir //= &getdir('PORTAGE_LOGDIR', 'PORT_LOGDIR', 'var', 'log', 'portage')
 }}
 
 {
@@ -1141,7 +1152,7 @@ sub cleanelogs {
 
 sub cleannotes {
 	&getinstalled();
-	my $noticedir = &getdir('PORT_ENOTICE_DIR', 'var', 'log', 'notices');
+	my $noticedir = &getdir('PORT_ENOTICE_DIR', '', 'var', 'log', 'notices');
 	for my $file (sort(&getfiles($noticedir))) {
 		my $path = File::Spec->catfile($noticedir, $file);
 		next unless(-f $path);
@@ -1173,7 +1184,7 @@ sub cleannotes {
 }
 
 sub cleanbuilds {
-	my $porttmp = &getdir('PORTAGE_TMPDIR', 'var', 'tmp');
+	my $porttmp = &getdir('PORTAGE_TMPDIR', '', 'var', 'tmp');
 	my $builddir = &getsub($porttmp, 'portage');
 	for my $i (&getfiles($builddir, 1)) {
 		next if($i eq 'homedir');

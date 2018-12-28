@@ -1,15 +1,14 @@
 # logclean
 
-(C) Martin Väth (martin at mvath.de).
+(C) Martin Väth (mvath at google.com).
 
-This project is under a BSD type license, meaning that you can do almost
-anything with it except removing my name.
+This project is under the BSD license 2.0 (“3-clause BSD license”).
 
 With Gentoo, it is a good idea to keep the install logs
 of all installed packages.
 In case something goes wrong, a `grep` in these logs is sometimes very handy.
 
-However, if you set `PORT_LOGDIR` in your `make.conf`, you soon have also
+However, if you set `PORTAGE_LOGDIR` in your `make.conf`, you soon have also
 thousands of logs of obsolete packages, because each `emerge`
 (successful or not) and also each `unmerge` (even fast `unmerge`)
 produces a logfile.
