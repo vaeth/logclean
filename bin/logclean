@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v18.3.0';
+our $VERSION = 'v18.4.0';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 
@@ -684,8 +684,6 @@ sub getfiles {
 	@files
 }}
 
-# read a directory, hashing the content
-
 # test whether file/dir has an allowed date
 
 {
@@ -696,6 +694,7 @@ sub daterange {
 		return 1
 	}
 	my $mtime = (stat($filename))[9];
+	defined($mtime) or &fatal('failed to stat ' . $filename);
 	my $diff = (($currtime //= time()) - $mtime) / 3600;
 	if($newer ne '') {
 		return '' if($diff > $newer)
