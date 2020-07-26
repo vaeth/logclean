@@ -1,7 +1,8 @@
 #!/usr/bin/env perl
+# SPDX-License-Identifier: BSD-3-Clause
 BEGIN { require 5.008 }
 package LogClean;
-our $VERSION = 'v18.4.0';
+our $VERSION = 'v18.4.1';
 eval { $VERSION = version->declare($VERSION) };
 eval 'use version 0.77; $VERSION = version->declare($VERSION)' if($@);
 

@@ -1,8 +1,9 @@
 # logclean
 
-(C) Martin Väth (mvath at google.com).
+(C) Martin Väth (martin at mvath.de).
 
 This project is under the BSD license 2.0 (“3-clause BSD license”).
+SPDX-License-Identifier: BSD-3-Clause
 
 With Gentoo, it is a good idea to keep the install logs
 of all installed packages.
